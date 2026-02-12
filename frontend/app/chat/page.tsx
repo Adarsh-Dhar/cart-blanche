@@ -78,26 +78,50 @@ export default function ChatPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyToSend),
       })
-      if (!response.ok) {
-        const errorBody = await response.json()
+      let data = null
+      let errorMsg = ''
+      try {
+        data = await response.json()
+      } catch (err) {
+        errorMsg = 'Invalid response from backend.'
+      }
+      if (!response.ok || errorMsg) {
         setMessages((prev) => [
           ...prev,
           {
             id: (Date.now() + 2).toString(),
             role: 'assistant',
-            content: `Agent Error: ${errorBody.error || 'Unknown error.'}`,
+            content: `Agent Error: ${errorMsg || (data && (data.error || data.traceback)) || 'Unknown error.'}`,
             timestamp: new Date(),
             status: 'complete',
           },
         ])
         return
       }
-      const data = await response.json()
-      // Try to parse mandate or discovery_data
+      // Prefer agent_response if present, otherwise fallback to discovery_data
       let content = 'No response from agent.'
       let intent = undefined
-      if (data.discovery_data) {
-        content = JSON.stringify(data.discovery_data, null, 2)
+      if (data.agent_response && typeof data.agent_response === 'string' && data.agent_response.trim()) {
+        // If agent_response is a generic fallback, show a user-friendly message
+        if (/please provide a request/i.test(data.agent_response)) {
+          content = 'The agent could not understand your request. Please try rephrasing or be more specific.'
+        } else {
+          content = data.agent_response
+        }
+      } else if (data.discovery_data) {
+        // If discovery_data is a string, show it directly
+        if (typeof data.discovery_data === 'string') {
+          content = data.discovery_data
+        } else if (data.discovery_data.text_result) {
+          // If text_result is a generic fallback, show a user-friendly message
+          if (/please provide a request/i.test(data.discovery_data.text_result)) {
+            content = 'The agent could not understand your request. Please try rephrasing or be more specific.'
+          } else {
+            content = data.discovery_data.text_result
+          }
+        } else {
+          content = JSON.stringify(data.discovery_data, null, 2)
+        }
         intent = data.discovery_data.intent || data.discovery_data.mandate || undefined
       }
       setMessages((prev) => [

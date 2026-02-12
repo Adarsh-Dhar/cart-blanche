@@ -1,104 +1,116 @@
 
 
+
 import os
+import traceback
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import httpx
-
-# Ensure .env is loaded for GOOGLE_API_KEY and other settings
 from dotenv import load_dotenv
+
+# REMOVED: from google.genai.types import Content, Part 
+
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 from google.adk.cli.fast_api import get_fast_api_app
+from server.shopping_concierge.shopping_agent import shopping_agent
+from server.shopping_concierge.merchant_agent import merchant_agent
+from server.shopping_concierge.adk_context_utils import SESSION_SERVICE, get_or_create_session, build_invocation_context
 
-# --- NEW IMPORT: Required for the Agent to "hear" the user ---
-from google.genai.types import Content, Part
+import os
+import traceback
+import json
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+import httpx
+from dotenv import load_dotenv
 
-# Provide agents_dir and web as required by ADK version
+# --- NOTE: Removed google.genai.types imports (Content, Part) as they confuse the ADK ---
+
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+
+from google.adk.cli.fast_api import get_fast_api_app
+from server.shopping_concierge.shopping_agent import shopping_agent
+from server.shopping_concierge.merchant_agent import merchant_agent
+from server.shopping_concierge.adk_context_utils import SESSION_SERVICE, get_or_create_session, build_invocation_context
+
 app: FastAPI = get_fast_api_app(
     agents_dir=os.path.join(os.path.dirname(__file__), "shopping_concierge"),
     web=False,
     allow_origins=["http://localhost:3000"]
 )
 
-# --- Import agents for direct invocation ---
-
-from server.shopping_concierge.shopping_agent import shopping_agent
-from server.shopping_concierge.merchant_agent import merchant_agent
-from server.shopping_concierge.adk_context_utils import SESSION_SERVICE, get_or_create_session, build_invocation_context
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
-# --- Expose /apps/shopping_concierge/run endpoint ---
-import traceback
-
-
 @app.post("/apps/shopping_concierge/run")
 async def shopping_concierge_run(request: Request):
+    # --- DEBUG START ---
     body = await request.json()
-
-
-    # 1. Extract the raw input
+    print(f"\n[DEBUG] 1. Received Body: {json.dumps(body, indent=2)}")
+    
     raw_input = body.get("new_message") or body.get("user_content")
-    intent_mandate = body.get("intent_mandate")
+    print(f"[DEBUG] 2. Raw Input: {raw_input} (Type: {type(raw_input)})")
+    # --- DEBUG END ---
 
-
-    # 2. Extract the text string (Handle all formats)
+    # Extraction Logic
     user_text = ""
     if isinstance(raw_input, str):
         user_text = raw_input
     elif isinstance(raw_input, dict):
         if "text" in raw_input:
             user_text = raw_input["text"]
-        elif "parts" in raw_input and isinstance(raw_input["parts"], list):
-            part = raw_input["parts"][0]
-            if isinstance(part, dict):
-                user_text = part.get("text", "")
-            elif hasattr(part, "text"):
-                user_text = part.text
+        elif "parts" in raw_input:
+            # Handle {parts: [{text: ...}]}
+            p = raw_input["parts"][0]
+            if isinstance(p, dict):
+                user_text = p.get("text", "")
+            elif hasattr(p, "text"):
+                user_text = p.text
+    
+    print(f"[DEBUG] 3. Extracted Text: '{user_text}'")
 
     if not user_text:
-        # Fallback to prevent crash
-        user_text = "Hello"
+        print("[DEBUG] WARNING: User text empty! Defaulting to 'Start'")
+        user_text = "Start"
 
-    # 3. CRITICAL FIX: Wrap text in the official Content object
-    # This ensures the LLM sees it as a valid user turn
-    user_content_obj = Content(
-        role="user",
-        parts=[Part(text=user_text)]
-    )
+    # CRITICAL FIX: Use a simple Dictionary, not a Content object
+    user_content_dict = {
+        "role": "user",
+        "parts": [{"text": user_text}]
+    }
+
+    intent_mandate = body.get("intent_mandate")
 
     try:
         session = await get_or_create_session(app_name="shopping_concierge", user_id="user")
 
-        # 4. Build Context with the OBJECT, not a dict
         context = build_invocation_context(
             agent=shopping_agent,
             session=session,
             session_service=SESSION_SERVICE,
             state={"intent_mandate": intent_mandate} if intent_mandate else {},
-            user_content=user_content_obj
+            user_content=user_content_dict 
         )
 
-        # 3. Run Agent and Consume ALL Events
+        print("[DEBUG] 4. Agent Running...")
         agen = shopping_agent.run_async(context)
         last_event = None
         async for event in agen:
             last_event = event
-            # Optional: Print events to console to see what's happening
-            # print(f"Event: {event}")
+        
+        print("[DEBUG] 5. Agent Finished.")
 
-        # 4. Retrieve Data from SESSION STATE
+        # Retrieve Data
         discovery_data = context.session.state.get("discovery_data")
-
-        # 5. Get the text response from the last event (if available)
+        print(f"[DEBUG] 6. Discovery Data from State: {discovery_data}")
+        
         agent_text = ""
         if last_event and last_event.content and last_event.content.parts:
             agent_text = last_event.content.parts[0].text or ""
 
-        # 6. Fail-safe: If discovery_data is empty, use the text as discovery data
+        # Fail-safe
         if not discovery_data and agent_text:
             discovery_data = {"text_result": agent_text}
 
@@ -108,37 +120,9 @@ async def shopping_concierge_run(request: Request):
         })
 
     except Exception as e:
-        import traceback
         tb = traceback.format_exc()
-        print(f"SERVER ERROR: {tb}")
+        print(f"[ERROR] SERVER ERROR: {tb}")
         return JSONResponse({"error": str(e), "traceback": tb}, status_code=500)
-
-# --- Expose /apps/shopping_concierge/merchant/run endpoint ---
-
-@app.post("/apps/shopping_concierge/merchant/run")
-async def shopping_concierge_merchant_run(request: Request):
-    body = await request.json()
-    intent_mandate = body.get("intent_mandate")
-    discovery_data = body.get("discovery_data", {})
-    if not intent_mandate:
-        return JSONResponse({"error": "Missing intent_mandate"}, status_code=400)
-    try:
-        session = await get_or_create_session(app_name="shopping_concierge", user_id="user")
-        context = build_invocation_context(
-            agent=merchant_agent,
-            session=session,
-            session_service=SESSION_SERVICE,
-            state={"intent_mandate": intent_mandate, "discovery_data": discovery_data},
-            user_content=None
-        )
-        agen = merchant_agent.run_async(context)
-        result = None
-        async for r in agen:
-            result = r
-            break
-        if result is None:
-            return JSONResponse({"error": "No result from agent."}, status_code=500)
-        return JSONResponse({"cart_mandate": result.get("cart_mandate", {})})
     except Exception as e:
         tb = traceback.format_exc()
         return JSONResponse({"error": str(e), "traceback": tb}, status_code=500)
