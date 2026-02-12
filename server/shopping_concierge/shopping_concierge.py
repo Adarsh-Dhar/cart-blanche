@@ -1,6 +1,7 @@
 # shopping_concierge.py (ADK entrypoint for /apps/shopping_concierge)
-from server.shopping_concierge.conductor import conductor
-from server.shopping_concierge.x402_settlement import payment_processor_agent
+
+from .conductor import conductor
+from .x402_settlement import payment_processor_agent
 
 # The ADK looks for this variable name in this file to register the app as 'shopping_concierge'
 AGENTS = [conductor, payment_processor_agent]

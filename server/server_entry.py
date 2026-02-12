@@ -13,9 +13,9 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 from google.adk.cli.fast_api import get_fast_api_app
-from server.shopping_concierge.shopping_agent import shopping_agent
-from server.shopping_concierge.merchant_agent import merchant_agent
-from server.shopping_concierge.adk_context_utils import SESSION_SERVICE, get_or_create_session, build_invocation_context
+from shopping_concierge.shopping_agent import shopping_agent
+from shopping_concierge.merchant_agent import merchant_agent
+from shopping_concierge.adk_context_utils import SESSION_SERVICE, get_or_create_session, build_invocation_context
 
 import os
 import traceback
@@ -30,9 +30,9 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 from google.adk.cli.fast_api import get_fast_api_app
-from server.shopping_concierge.shopping_agent import shopping_agent
-from server.shopping_concierge.merchant_agent import merchant_agent
-from server.shopping_concierge.adk_context_utils import SESSION_SERVICE, get_or_create_session, build_invocation_context
+from shopping_concierge.shopping_agent import shopping_agent
+from shopping_concierge.merchant_agent import merchant_agent
+from shopping_concierge.adk_context_utils import SESSION_SERVICE, get_or_create_session, build_invocation_context
 
 app: FastAPI = get_fast_api_app(
     agents_dir=os.path.join(os.path.dirname(__file__), "shopping_concierge"),
@@ -102,10 +102,11 @@ async def shopping_concierge_run(request: Request):
         
         print("[DEBUG] 5. Agent Finished.")
 
+
         # Retrieve Data
         discovery_data = context.session.state.get("discovery_data")
         print(f"[DEBUG] 6. Discovery Data from State: {discovery_data}")
-        
+
         agent_text = ""
         if last_event and last_event.content and last_event.content.parts:
             agent_text = last_event.content.parts[0].text or ""
@@ -114,9 +115,21 @@ async def shopping_concierge_run(request: Request):
         if not discovery_data and agent_text:
             discovery_data = {"text_result": agent_text}
 
+        # --- Post-process payment_mandate signature if present ---
+        payment_mandate = context.session.state.get("payment_mandate")
+        if payment_mandate and "GENERATED_VIA_SIGNING_UTILITY" in str(payment_mandate):
+            payload = payment_mandate.get("payload")
+            if payload:
+                from server.shopping_concierge.adk_context_utils import sign_mandate
+                sig, signer = sign_mandate(payload)
+                payment_mandate["signature"] = sig
+                payment_mandate["signer"] = signer
+                context.session.state["payment_mandate"] = payment_mandate
+
         return JSONResponse({
             "discovery_data": discovery_data or {},
-            "agent_response": agent_text
+            "agent_response": agent_text,
+            "payment_mandate": context.session.state.get("payment_mandate")
         })
 
     except Exception as e:

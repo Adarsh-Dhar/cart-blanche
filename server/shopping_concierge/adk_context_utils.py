@@ -1,39 +1,40 @@
-# ADK invocation context and session service setup for FastAPI endpoints
 
-from google.adk.agents.invocation_context import InvocationContext
-from google.adk.sessions.in_memory_session_service import InMemorySessionService
-from google.adk.sessions.session import Session
-from google.adk.agents.run_config import RunConfig  # <--- NEW IMPORT
+import os
+import json
+import hashlib
+import httpx
+from ecdsa import SigningKey, VerifyingKey, SECP256k1, BadSignatureError
+from dotenv import load_dotenv
 
-# Singleton in-memory session service for demo
-SESSION_SERVICE = InMemorySessionService()
+FACILITATOR_URL = os.getenv("FACILIATOR_URL")
 
-async def get_or_create_session(app_name: str, user_id: str = "user", state: dict = None) -> Session:
-    # Try to find an existing session, else create one
-    sessions = await SESSION_SERVICE.list_sessions(app_name=app_name, user_id=user_id)
-    if sessions.sessions:
-        return sessions.sessions[0]
-    return await SESSION_SERVICE.create_session(app_name=app_name, user_id=user_id, state=state or {})
+async def settle_via_facilitator(payment_mandate: dict):
+    """
+    Sends the signed mandate to an x402 facilitator for on-chain settlement.
+    """
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{FACILITATOR_URL}/settle",
+            json=payment_mandate
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            raise Exception(f"Facilitator error: {response.text}")
 
-def build_invocation_context(agent, session, session_service, state=None, user_content=None):
-    # 1. Create a default RunConfig (Fixes 'NoneType has no attribute response_modalities')
-    default_run_config = RunConfig()
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
-    # 2. Map 'state' to 'agent_states' (Fixes 'Extra inputs are not permitted')
-    # The ADK now expects state to be scoped to the specific agent.
-    agent_states = {}
-    if state:
-        agent_states[agent.name] = state
+def canonical_json(data):
+    """Return a canonical JSON string (sorted keys, no whitespace)."""
+    return json.dumps(data, sort_keys=True, separators=(",", ":"))
 
-    return InvocationContext(
-        agent=agent,
-        session=session,
-        session_service=session_service,
-        agent_states=agent_states, # <--- Correctly passing state here
-        end_of_agents={},
-        end_invocation=False,
-        invocation_id="e-" + session.id,
-        user_content=user_content,
-        # state=state, <--- REMOVED: This was causing the crash
-        run_config=default_run_config
-    )
+def get_signing_key():
+    priv_key_hex = os.getenv("AGENT_PRIVATE_KEY")
+    if not priv_key_hex:
+        raise ValueError("AGENT_PRIVATE_KEY not set in .env")
+    return SigningKey.from_string(bytes.fromhex(priv_key_hex), curve=SECP256k1)
+
+def get_verifying_key_from_private():
+    return get_signing_key().verifying_key
+
+    ...existing code...
