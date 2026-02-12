@@ -2,7 +2,7 @@
 # This is a stub for blockchain settlement. Replace with real x402 logic as needed.
 
 from google.adk.agents import LlmAgent
-from .x402_settlement_tool import X402SettlementTool
+from server.shopping_concierge.x402_settlement_tool import X402SettlementTool
 
 # Example Payment Processor Agent using the tool
 payment_processor_agent = LlmAgent(

@@ -1,21 +1,89 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+import os
 from google.adk.cli.fast_api import get_fast_api_app
+import httpx
 
-# This helper automatically creates /run, /run_sse, and session routes under /apps/{app_name}/
+# Provide agents_dir and web as required by ADK version
 app: FastAPI = get_fast_api_app(
-    agents_dir="shopping_concierge",
+    agents_dir=os.path.join(os.path.dirname(__file__), "shopping_concierge"),
     web=False,
-    allow_origins=["http://localhost:3000"]  # Adjust as needed for your frontend
+    allow_origins=["http://localhost:3000"]
 )
 
+# --- Import agents for direct invocation ---
 
-from fastapi import Request
-from fastapi.responses import JSONResponse
-import httpx
+from server.shopping_concierge.shopping_agent import shopping_agent
+from server.shopping_concierge.merchant_agent import merchant_agent
+from server.shopping_concierge.adk_context_utils import SESSION_SERVICE, get_or_create_session, build_invocation_context
 
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# --- Expose /apps/shopping_concierge/run endpoint ---
+import traceback
+
+
+@app.post("/apps/shopping_concierge/run")
+async def shopping_concierge_run(request: Request):
+    body = await request.json()
+    intent_mandate = body.get("intent_mandate")
+    if not intent_mandate:
+        return JSONResponse({"error": "Missing intent_mandate"}, status_code=400)
+    try:
+        # Get or create a session for this app/user
+        session = await get_or_create_session(app_name="shopping_concierge", user_id="user")
+        # Build invocation context
+        context = build_invocation_context(
+            agent=shopping_agent,
+            session=session,
+            session_service=SESSION_SERVICE,
+            state={"intent_mandate": intent_mandate},
+            user_content=None
+        )
+        agen = shopping_agent.run_async(context)
+        result = None
+        async for r in agen:
+            result = r
+            break
+        if result is None:
+            return JSONResponse({"error": "No result from agent."}, status_code=500)
+        return JSONResponse({"discovery_data": result.get("discovery_data", {})})
+    except Exception as e:
+        tb = traceback.format_exc()
+        return JSONResponse({"error": str(e), "traceback": tb}, status_code=500)
+
+# --- Expose /apps/shopping_concierge/merchant/run endpoint ---
+
+@app.post("/apps/shopping_concierge/merchant/run")
+async def shopping_concierge_merchant_run(request: Request):
+    body = await request.json()
+    intent_mandate = body.get("intent_mandate")
+    discovery_data = body.get("discovery_data", {})
+    if not intent_mandate:
+        return JSONResponse({"error": "Missing intent_mandate"}, status_code=400)
+    try:
+        session = await get_or_create_session(app_name="shopping_concierge", user_id="user")
+        context = build_invocation_context(
+            agent=merchant_agent,
+            session=session,
+            session_service=SESSION_SERVICE,
+            state={"intent_mandate": intent_mandate, "discovery_data": discovery_data},
+            user_content=None
+        )
+        agen = merchant_agent.run_async(context)
+        result = None
+        async for r in agen:
+            result = r
+            break
+        if result is None:
+            return JSONResponse({"error": "No result from agent."}, status_code=500)
+        return JSONResponse({"cart_mandate": result.get("cart_mandate", {})})
+    except Exception as e:
+        tb = traceback.format_exc()
+        return JSONResponse({"error": str(e), "traceback": tb}, status_code=500)
 
 # --- Real AI orchestration for /apps/main/run ---
 @app.post("/apps/main/run")

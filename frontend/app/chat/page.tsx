@@ -60,18 +60,48 @@ export default function ChatPage() {
     setInput('')
     setLoading(true)
 
+    // Check for specific shopping intent (simple keyword match)
+    const lowerInput = input.toLowerCase()
+    let bodyToSend: any = null
+    if (
+      lowerInput.includes('noise-canceling headphones') &&
+      (lowerInput.includes('under $200') || lowerInput.includes('below $200') || lowerInput.includes('less than $200'))
+    ) {
+      bodyToSend = {
+        intent: 'find_and_purchase_product',
+        product_category: 'noise-canceling headphones',
+        price_constraint: {
+          max_price: 200,
+          currency: 'USD',
+        },
+        action: 'show_cart_details',
+        discovery_data: [
+          {
+            merchant_name: 'ElectroDeals',
+            agent_json_url: 'https://electrodeals.com/.well-known/agent.json',
+          },
+          {
+            merchant_name: 'SoundBreeze',
+            agent_json_url: 'https://soundbreeze.net/.well-known/agent.json',
+          },
+        ],
+      }
+    } else {
+      bodyToSend = {
+        user_id: 'adarsh_user',
+        session_id: 'current_session',
+        new_message: {
+          role: 'user',
+          parts: [{ text: input }],
+        },
+      }
+    }
+
     try {
       const response = await fetch(`${process.env.NEXT_PUBLIC_AGENT_URL}/apps/main/run`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_id: 'adarsh_user',
-          session_id: 'current_session',
-          new_message: {
-            role: 'user',
-            parts: [{ text: input }],
-          },
-        }),
+        body: JSON.stringify(bodyToSend),
       })
       const data = await response.json()
       const assistantMessage: Message = {
