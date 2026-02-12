@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useX402 } from '@/hooks/useX402'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -22,6 +23,7 @@ interface Message {
 }
 
 export default function ChatPage() {
+  const { signMandate } = useX402()
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
@@ -58,42 +60,43 @@ export default function ChatPage() {
     setInput('')
     setLoading(true)
 
-    // Simulate AI response
-    setTimeout(() => {
-      const responses = [
-        {
-          content:
-            'I found some great options for you! Let me search our inventory and create an Intent Mandate for your approval.',
-          intent: {
-            category: 'Space Suits',
-            budget: 20000,
-            items: ['Astral Trek Attire NJ-2', 'Saturn Journey Drop'],
+    try {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_AGENT_URL}/apps/main/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          user_id: 'adarsh_user',
+          session_id: 'current_session',
+          new_message: {
+            role: 'user',
+            parts: [{ text: input }],
           },
-        },
-        {
-          content:
-            'Based on your request, I\'m analyzing merchant options and building a Cart Mandate. I found 3 highly-rated sellers offering what you need at excellent prices.',
-        },
-        {
-          content:
-            'Great! I\'ve prepared a Payment Mandate for your signature. Once you approve, I\'ll complete the transaction securely using your Web3 wallet.',
-        },
-      ]
-
-      const randomResponse = responses[Math.floor(Math.random() * responses.length)]
-
+        }),
+      })
+      const data = await response.json()
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: randomResponse.content,
+        content: data?.result?.text || 'No response from agent.',
         timestamp: new Date(),
         status: 'complete',
-        intent: randomResponse.intent,
+        intent: data?.result?.intent,
       }
-
       setMessages((prev) => [...prev, assistantMessage])
+    } catch (error) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 2).toString(),
+          role: 'assistant',
+          content: 'Error contacting backend agent.',
+          timestamp: new Date(),
+          status: 'complete',
+        },
+      ])
+    } finally {
       setLoading(false)
-    }, 1500)
+    }
   }
 
   return (
@@ -233,6 +236,34 @@ export default function ChatPage() {
                     <Button
                       size="sm"
                       className="mt-2 w-full bg-primary text-primary-foreground hover:bg-primary/90 h-8"
+                      onClick={async () => {
+                        // Simulate CartMandate approval and signing
+                        const signed = await signMandate(message.intent)
+                        // Send signed mandate to backend (main app)
+                        await fetch(`${process.env.NEXT_PUBLIC_AGENT_URL}/apps/main/run`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            user_id: 'adarsh_user',
+                            session_id: 'current_session',
+                            new_message: {
+                              role: 'user',
+                              parts: [{ text: JSON.stringify(signed) }],
+                            },
+                          }),
+                        })
+                        // Optionally, show confirmation to user
+                        setMessages((prev) => [
+                          ...prev,
+                          {
+                            id: (Date.now() + 3).toString(),
+                            role: 'assistant',
+                            content: 'Mandate approved and sent for processing.',
+                            timestamp: new Date(),
+                            status: 'complete',
+                          },
+                        ])
+                      }}
                     >
                       Approve Intent
                     </Button>
