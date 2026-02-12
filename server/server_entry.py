@@ -1,4 +1,5 @@
 
+
 import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -9,6 +10,9 @@ from dotenv import load_dotenv
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
 
 from google.adk.cli.fast_api import get_fast_api_app
+
+# --- NEW IMPORT: Required for the Agent to "hear" the user ---
+from google.genai.types import Content, Part
 
 # Provide agents_dir and web as required by ADK version
 app: FastAPI = get_fast_api_app(
@@ -27,7 +31,6 @@ from server.shopping_concierge.adk_context_utils import SESSION_SERVICE, get_or_
 async def health():
     return {"status": "ok"}
 
-
 # --- Expose /apps/shopping_concierge/run endpoint ---
 import traceback
 
@@ -36,20 +39,47 @@ import traceback
 async def shopping_concierge_run(request: Request):
     body = await request.json()
 
-    # 1. Extract inputs
-    user_msg_dict = body.get("new_message") or body.get("user_content")
+
+    # 1. Extract the raw input
+    raw_input = body.get("new_message") or body.get("user_content")
     intent_mandate = body.get("intent_mandate")
+
+
+    # 2. Extract the text string (Handle all formats)
+    user_text = ""
+    if isinstance(raw_input, str):
+        user_text = raw_input
+    elif isinstance(raw_input, dict):
+        if "text" in raw_input:
+            user_text = raw_input["text"]
+        elif "parts" in raw_input and isinstance(raw_input["parts"], list):
+            part = raw_input["parts"][0]
+            if isinstance(part, dict):
+                user_text = part.get("text", "")
+            elif hasattr(part, "text"):
+                user_text = part.text
+
+    if not user_text:
+        # Fallback to prevent crash
+        user_text = "Hello"
+
+    # 3. CRITICAL FIX: Wrap text in the official Content object
+    # This ensures the LLM sees it as a valid user turn
+    user_content_obj = Content(
+        role="user",
+        parts=[Part(text=user_text)]
+    )
 
     try:
         session = await get_or_create_session(app_name="shopping_concierge", user_id="user")
 
-        # 2. Build Context
+        # 4. Build Context with the OBJECT, not a dict
         context = build_invocation_context(
             agent=shopping_agent,
             session=session,
             session_service=SESSION_SERVICE,
             state={"intent_mandate": intent_mandate} if intent_mandate else {},
-            user_content=user_msg_dict
+            user_content=user_content_obj
         )
 
         # 3. Run Agent and Consume ALL Events
@@ -61,15 +91,19 @@ async def shopping_concierge_run(request: Request):
             # print(f"Event: {event}")
 
         # 4. Retrieve Data from SESSION STATE
-        discovery_data = context.session.state.get("discovery_data", {})
+        discovery_data = context.session.state.get("discovery_data")
 
         # 5. Get the text response from the last event (if available)
         agent_text = ""
         if last_event and last_event.content and last_event.content.parts:
             agent_text = last_event.content.parts[0].text or ""
 
+        # 6. Fail-safe: If discovery_data is empty, use the text as discovery data
+        if not discovery_data and agent_text:
+            discovery_data = {"text_result": agent_text}
+
         return JSONResponse({
-            "discovery_data": discovery_data,
+            "discovery_data": discovery_data or {},
             "agent_response": agent_text
         })
 
