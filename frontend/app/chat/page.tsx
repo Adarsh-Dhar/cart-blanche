@@ -36,6 +36,8 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [showSidebar, setShowSidebar] = useState(true)
+  const [userId, setUserId] = useState('')
+  const [sessionId, setSessionId] = useState('')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -60,59 +62,48 @@ export default function ChatPage() {
     setInput('')
     setLoading(true)
 
-    // Check for specific shopping intent (simple keyword match)
-    const lowerInput = input.toLowerCase()
-    let bodyToSend: any = null
-    if (
-      lowerInput.includes('noise-canceling headphones') &&
-      (lowerInput.includes('under $200') || lowerInput.includes('below $200') || lowerInput.includes('less than $200'))
-    ) {
-      bodyToSend = {
-        intent: 'find_and_purchase_product',
-        product_category: 'noise-canceling headphones',
-        price_constraint: {
-          max_price: 200,
-          currency: 'USD',
-        },
-        action: 'show_cart_details',
-        discovery_data: [
-          {
-            merchant_name: 'ElectroDeals',
-            agent_json_url: 'https://electrodeals.com/.well-known/agent.json',
-          },
-          {
-            merchant_name: 'SoundBreeze',
-            agent_json_url: 'https://soundbreeze.net/.well-known/agent.json',
-          },
-        ],
-      }
-    } else {
-      bodyToSend = {
-        user_id: 'adarsh_user',
-        session_id: 'current_session',
-        new_message: {
-          role: 'user',
-          parts: [{ text: input }],
-        },
-      }
-    }
+    // Send the user's raw message as user_content for the first agent
+    const bodyToSend = { user_content: input }
 
     try {
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AGENT_URL}/apps/main/run`, {
+      const response = await fetch('http://localhost:8000/apps/shopping_concierge/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(bodyToSend),
       })
-      const data = await response.json()
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: data?.result?.text || 'No response from agent.',
-        timestamp: new Date(),
-        status: 'complete',
-        intent: data?.result?.intent,
+      if (!response.ok) {
+        const errorBody = await response.json()
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: (Date.now() + 2).toString(),
+            role: 'assistant',
+            content: `Agent Error: ${errorBody.error || 'Unknown error.'}`,
+            timestamp: new Date(),
+            status: 'complete',
+          },
+        ])
+        return
       }
-      setMessages((prev) => [...prev, assistantMessage])
+      const data = await response.json()
+      // Try to parse mandate or discovery_data
+      let content = 'No response from agent.'
+      let intent = undefined
+      if (data.discovery_data) {
+        content = JSON.stringify(data.discovery_data, null, 2)
+        intent = data.discovery_data.intent || data.discovery_data.mandate || undefined
+      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: (Date.now() + 1).toString(),
+          role: 'assistant',
+          content,
+          timestamp: new Date(),
+          status: 'complete',
+          intent,
+        },
+      ])
     } catch (error) {
       setMessages((prev) => [
         ...prev,
@@ -131,6 +122,25 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen bg-background flex">
+      {/* User/session input */}
+      <div className="absolute top-2 right-2 z-50 flex gap-2 bg-card/80 p-2 rounded shadow">
+        <input
+          type="text"
+          placeholder="User ID"
+          value={userId}
+          onChange={e => setUserId(e.target.value)}
+          className="border px-2 py-1 rounded text-xs"
+          style={{ width: 120 }}
+        />
+        <input
+          type="text"
+          placeholder="Session ID"
+          value={sessionId}
+          onChange={e => setSessionId(e.target.value)}
+          className="border px-2 py-1 rounded text-xs"
+          style={{ width: 140 }}
+        />
+      </div>
       {/* Sidebar */}
       {showSidebar && (
         <div className="w-64 border-r border-border/30 bg-card/50 backdrop-blur-sm p-4 flex flex-col overflow-hidden">

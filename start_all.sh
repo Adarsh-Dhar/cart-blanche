@@ -25,6 +25,12 @@ if [ -f frontend/.next/dev/lock ]; then
 	rm -f frontend/.next/dev/lock
 fi
 
+# Load environment variables from .env if present
+if [ -f .env ]; then
+	set -a
+	. ./.env
+	set +a
+fi
 # Start backend (FastAPI/ADK) on port 8000
 echo "Starting backend (server_entry.py) on port $BACKEND_PORT..."
 uvicorn server.server_entry:app --host 0.0.0.0 --port $BACKEND_PORT --reload &

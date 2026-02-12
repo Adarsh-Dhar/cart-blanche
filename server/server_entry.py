@@ -28,20 +28,41 @@ import traceback
 
 @app.post("/apps/shopping_concierge/run")
 async def shopping_concierge_run(request: Request):
-    body = await request.json()
-    intent_mandate = body.get("intent_mandate")
-    if not intent_mandate:
-        return JSONResponse({"error": "Missing intent_mandate"}, status_code=400)
+    user_message = await request.json()
+    # Accept user_id and session_id from the request body if present
+    user_id = None
+    session_id = None
+    if isinstance(user_message, dict):
+        user_id = user_message.get("user_id")
+        session_id = user_message.get("session_id")
+    # Extract user_content as a plain string (required by InvocationContext for this ADK version)
+    if isinstance(user_message, dict):
+        if "user_content" in user_message:
+            user_content = user_message["user_content"]
+        elif len(user_message) == 1:
+            user_content = list(user_message.values())[0]
+        else:
+            user_content = None
+    else:
+        user_content = user_message
+    if not user_content or not isinstance(user_content, str):
+        return JSONResponse({"error": "Missing user message"}, status_code=400)
+    # Use provided user_id/session_id or fallback to defaults
+    user_id = user_id or "user"
+    session_id = session_id or None
     try:
-        # Get or create a session for this app/user
-        session = await get_or_create_session(app_name="shopping_concierge", user_id="user")
-        # Build invocation context
+        # Get or create a session for this app/user, optionally with session_id
+        session = await get_or_create_session(app_name="shopping_concierge", user_id=user_id)
+        # Debug: print the user_content and session info being passed to the agent
+        import sys
+        print(f"[DEBUG] user_content passed to agent: {user_content}", file=sys.stderr)
+        print(f"[DEBUG] user_id: {user_id}, session_id: {session.id}", file=sys.stderr)
+        # Build invocation context (user_content as plain string)
         context = build_invocation_context(
             agent=shopping_agent,
             session=session,
             session_service=SESSION_SERVICE,
-            state={"intent_mandate": intent_mandate},
-            user_content=None
+            user_content=user_content
         )
         agen = shopping_agent.run_async(context)
         result = None
@@ -50,7 +71,11 @@ async def shopping_concierge_run(request: Request):
             break
         if result is None:
             return JSONResponse({"error": "No result from agent."}, status_code=500)
-        return JSONResponse({"discovery_data": result.get("discovery_data", {})})
+        return JSONResponse({
+            "discovery_data": result.get("discovery_data", {}),
+            "session_id": session.id,
+            "user_id": user_id
+        })
     except Exception as e:
         tb = traceback.format_exc()
         return JSONResponse({"error": str(e), "traceback": tb}, status_code=500)
@@ -89,40 +114,30 @@ async def shopping_concierge_merchant_run(request: Request):
 @app.post("/apps/main/run")
 async def main_run(request: Request):
     body = await request.json()
-    # Accepts intent_mandate and discovery_data, or legacy fields
-    intent_mandate = body.get("intent_mandate")
-    discovery_data = body.get("discovery_data", {})
-
-    # Support legacy direct queries
-    if not intent_mandate:
-        # Try to build intent_mandate from legacy fields
+    # Accepts user_message (string) or legacy fields
+    user_message = body.get("user_message")
+    if not user_message:
+        # Try to build user_message from legacy fields
+        user_message = body.get("text") or body.get("input")
+    if not user_message:
+        # Fallback: try to reconstruct from intent fields
         intent = body.get("intent")
         product_category = body.get("product_category")
         price_constraint = body.get("price_constraint", {})
         if intent and product_category:
-            # Example: find_and_purchase_product intent
             features = []
             if "noise-canceling" in product_category.lower():
                 features.append("noise-canceling")
             price_max = price_constraint.get("max_price", 200)
-            intent_mandate = {
-                "action": "search_and_purchase",
-                "product": {
-                    "type": product_category,
-                    "features": features,
-                    "price_max": price_max
-                },
-                "output_preference": "cart_details"
-            }
-        else:
-            return JSONResponse({"result": {"text": "Missing intent_mandate or legacy fields."}}, status_code=400)
+            user_message = f"I want to {intent.replace('_', ' ')} {product_category} with features {features} under ${price_max}"
+    if not user_message:
+        return JSONResponse({"result": {"text": "Missing user message or legacy fields."}}, status_code=400)
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            # ShoppingAgent: send intent_mandate, get discovery_data
-            shopping_agent_url = "http://localhost:8000/apps/shopping_concierge/run"  # Example endpoint
-            shopping_payload = {"intent_mandate": intent_mandate}
-            shopping_resp = await client.post(shopping_agent_url, json=shopping_payload)
+            # ShoppingAgent: send user_message (string), get discovery_data
+            shopping_agent_url = "http://localhost:8000/apps/shopping_concierge/run"
+            shopping_resp = await client.post(shopping_agent_url, json=user_message)
             if shopping_resp.status_code == 200:
                 shopping_result = shopping_resp.json()
                 discovery_data = shopping_result.get("discovery_data", {})
@@ -130,7 +145,9 @@ async def main_run(request: Request):
                 return JSONResponse({"result": {"text": "ShoppingAgent error."}}, status_code=500)
 
             # MerchantAgent: send intent_mandate and discovery_data, get cart_mandate
-            merchant_agent_url = "http://localhost:8000/apps/shopping_concierge/merchant/run"  # Example endpoint
+            # (This part may need to be updated to use the actual intent_mandate from the agent output)
+            intent_mandate = discovery_data.get("intent_mandate") if isinstance(discovery_data, dict) else None
+            merchant_agent_url = "http://localhost:8000/apps/shopping_concierge/merchant/run"
             merchant_payload = {
                 "intent_mandate": intent_mandate,
                 "discovery_data": discovery_data

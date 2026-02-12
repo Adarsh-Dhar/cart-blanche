@@ -15,14 +15,11 @@ async def get_or_create_session(app_name: str, user_id: str = "user", state: dic
     return await SESSION_SERVICE.create_session(app_name=app_name, user_id=user_id, state=state or {})
 
 def build_invocation_context(agent, session, session_service, state=None, user_content=None):
+    # Only pass fields allowed by ADK InvocationContext schema
     return InvocationContext(
         agent=agent,
         session=session,
         session_service=session_service,
-        agent_states={},
-        end_of_agents={},
-        end_invocation=False,
         invocation_id="e-" + session.id,
         user_content=user_content,
-        state=state or {},
     )
