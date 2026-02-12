@@ -37,7 +37,7 @@ export default function ChatPage() {
   const [loading, setLoading] = useState(false)
   const [showSidebar, setShowSidebar] = useState(true)
   const [userId, setUserId] = useState('')
-  const [sessionId, setSessionId] = useState('')
+  const [sessionId, setSessionId] = useState('test-session-001')
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   const scrollToBottom = () => {
@@ -62,8 +62,15 @@ export default function ChatPage() {
     setInput('')
     setLoading(true)
 
-    // Send the user's raw message as user_content for the first agent
-    const bodyToSend = { user_content: input }
+    // Send the user's message as user_content in Gemini/ADK schema (correct key and structure)
+    const bodyToSend = {
+      user_content: {
+        role: 'user',
+        parts: [{ text: input }]
+      },
+      user_id: userId || 'user',
+      session_id: sessionId || undefined
+    }
 
     try {
       const response = await fetch('http://localhost:8000/apps/shopping_concierge/run', {

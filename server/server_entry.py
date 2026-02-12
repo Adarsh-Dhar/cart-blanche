@@ -1,8 +1,14 @@
+
+import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-import os
-from google.adk.cli.fast_api import get_fast_api_app
 import httpx
+
+# Ensure .env is loaded for GOOGLE_API_KEY and other settings
+from dotenv import load_dotenv
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), '.env'))
+
+from google.adk.cli.fast_api import get_fast_api_app
 
 # Provide agents_dir and web as required by ADK version
 app: FastAPI = get_fast_api_app(
@@ -28,56 +34,49 @@ import traceback
 
 @app.post("/apps/shopping_concierge/run")
 async def shopping_concierge_run(request: Request):
-    user_message = await request.json()
-    # Accept user_id and session_id from the request body if present
-    user_id = None
-    session_id = None
-    if isinstance(user_message, dict):
-        user_id = user_message.get("user_id")
-        session_id = user_message.get("session_id")
-    # Extract user_content as a plain string (required by InvocationContext for this ADK version)
-    if isinstance(user_message, dict):
-        if "user_content" in user_message:
-            user_content = user_message["user_content"]
-        elif len(user_message) == 1:
-            user_content = list(user_message.values())[0]
-        else:
-            user_content = None
-    else:
-        user_content = user_message
-    if not user_content or not isinstance(user_content, str):
-        return JSONResponse({"error": "Missing user message"}, status_code=400)
-    # Use provided user_id/session_id or fallback to defaults
-    user_id = user_id or "user"
-    session_id = session_id or None
+    body = await request.json()
+
+    # 1. Extract inputs
+    user_msg_dict = body.get("new_message") or body.get("user_content")
+    intent_mandate = body.get("intent_mandate")
+
     try:
-        # Get or create a session for this app/user, optionally with session_id
-        session = await get_or_create_session(app_name="shopping_concierge", user_id=user_id)
-        # Debug: print the user_content and session info being passed to the agent
-        import sys
-        print(f"[DEBUG] user_content passed to agent: {user_content}", file=sys.stderr)
-        print(f"[DEBUG] user_id: {user_id}, session_id: {session.id}", file=sys.stderr)
-        # Build invocation context (user_content as plain string)
+        session = await get_or_create_session(app_name="shopping_concierge", user_id="user")
+
+        # 2. Build Context
         context = build_invocation_context(
             agent=shopping_agent,
             session=session,
             session_service=SESSION_SERVICE,
-            user_content=user_content
+            state={"intent_mandate": intent_mandate} if intent_mandate else {},
+            user_content=user_msg_dict
         )
+
+        # 3. Run Agent and Consume ALL Events
         agen = shopping_agent.run_async(context)
-        result = None
-        async for r in agen:
-            result = r
-            break
-        if result is None:
-            return JSONResponse({"error": "No result from agent."}, status_code=500)
+        last_event = None
+        async for event in agen:
+            last_event = event
+            # Optional: Print events to console to see what's happening
+            # print(f"Event: {event}")
+
+        # 4. Retrieve Data from SESSION STATE
+        discovery_data = context.session.state.get("discovery_data", {})
+
+        # 5. Get the text response from the last event (if available)
+        agent_text = ""
+        if last_event and last_event.content and last_event.content.parts:
+            agent_text = last_event.content.parts[0].text or ""
+
         return JSONResponse({
-            "discovery_data": result.get("discovery_data", {}),
-            "session_id": session.id,
-            "user_id": user_id
+            "discovery_data": discovery_data,
+            "agent_response": agent_text
         })
+
     except Exception as e:
+        import traceback
         tb = traceback.format_exc()
+        print(f"SERVER ERROR: {tb}")
         return JSONResponse({"error": str(e), "traceback": tb}, status_code=500)
 
 # --- Expose /apps/shopping_concierge/merchant/run endpoint ---
