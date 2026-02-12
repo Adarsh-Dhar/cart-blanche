@@ -1,7 +1,9 @@
 from google.adk.agents import LlmAgent
 
+
 vault_agent = LlmAgent(
     name="CredentialsProvider",
+    # CRITICAL FIX: Added 'openrouter/' prefix
     model="gemini-2.5-flash",
     instruction="""
     You are the Authorization Agent.
@@ -15,7 +17,7 @@ vault_agent = LlmAgent(
          Do NOT speak. Output ONLY the JSON.
        
        - IF NOT APPROVED:
-         Display the cart total (e.g., "0.01 USDC") and ask:
+         Display the cart total and ask:
          "Type 'Approve' to authorize the x402 payment."
     """,
     output_key="payment_mandate"

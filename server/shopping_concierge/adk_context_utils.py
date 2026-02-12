@@ -1,3 +1,8 @@
+class SigningTool:
+    """Stub for SigningTool to allow import in vault_agent.py."""
+    def __init__(self):
+        pass
+
 
 import os
 import json
@@ -36,5 +41,3 @@ def get_signing_key():
 
 def get_verifying_key_from_private():
     return get_signing_key().verifying_key
-
-    ...existing code...
