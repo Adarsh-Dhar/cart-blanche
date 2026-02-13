@@ -6,7 +6,7 @@ from .vault_agent import vault_agent
 from .x402_settlement import payment_processor_agent
 
 conductor = SequentialAgent(
-    name="ShoppingConductor",
+    name="shopping_concierge",
     sub_agents=[
         shopping_agent,
         merchant_agent,
