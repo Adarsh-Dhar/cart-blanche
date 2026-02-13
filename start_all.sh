@@ -36,6 +36,11 @@ echo "Starting backend (server_entry.py) on port $BACKEND_PORT..."
 uvicorn server.server_entry:app --host 0.0.0.0 --port $BACKEND_PORT --reload &
 BACKEND_PID=$!
 
+# Start payment server (payment_server.py) on port 8001
+echo "Starting payment server (payment_server.py) on port 8001..."
+python3 server/payment_server.py > payment_server.log 2>&1 &
+PAYMENT_PID=$!
+
 # Start frontend (Next.js) on port 3000
 echo "Starting frontend (Next.js) on port $FRONTEND_PORT..."
 cd frontend || exit 1
@@ -44,5 +49,6 @@ FRONTEND_PID=$!
 cd ..
 
 echo "Backend PID: $BACKEND_PID"
+echo "Payment Server PID: $PAYMENT_PID"
 echo "Frontend PID: $FRONTEND_PID"
-echo "Both servers are starting. Use 'kill $BACKEND_PID $FRONTEND_PID' to stop them."
+echo "All servers are starting. Use 'kill $BACKEND_PID $PAYMENT_PID $FRONTEND_PID' to stop them."
