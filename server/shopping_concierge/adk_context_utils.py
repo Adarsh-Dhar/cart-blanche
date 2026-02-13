@@ -74,32 +74,24 @@ def get_x402_client():
     print("[get_x402_client] Creating x402 client...")
     
     print("[get_x402_client] Creating base x402 client...")
-    from x402.http.clients import x402HttpxClient
-    from x402.mechanisms.evm.exact import ExactEvmClientScheme
-    
-    # Get private key from environment
+    from eth_account import Account
+    from x402 import x402Client
+    from x402.mechanisms.evm import EthAccountSigner
+    from x402.mechanisms.evm.exact.register import register_exact_evm_client
+
     private_key = os.getenv("AGENT_PRIVATE_KEY")
     if not private_key:
         raise ValueError("AGENT_PRIVATE_KEY not set in .env - cannot create x402 client")
-    
-    print(f"[get_x402_client] ✅ Private key loaded (length: {len(private_key)})")
-    
-    # Configure facilitator
-    facilitator_url = os.getenv("FACILITATOR_URL", "https://x402.org/facilitator")
-    print(f"[get_x402_client] Using facilitator: {facilitator_url}")
-    
-    facilitator = HTTPFacilitatorClient(
-        FacilitatorConfig(url=facilitator_url)
-    )
-    
-    # Create x402 client
-    client = x402HttpxClient(facilitator=facilitator)
-    print("[get_x402_client] ✅ x402 HTTP client created")
-    
-    # Register the EVM payment scheme for Base Sepolia
-    network_id = "eip155:84532"  # Base Sepolia
-    client.register(network_id, ExactEvmClientScheme(private_key=private_key))
-    print(f"[get_x402_client] ✅ Registered EVM scheme for {network_id}")
+
+    # Remove '0x' prefix if accidentally included
+    if private_key.startswith("0x"):
+        private_key = private_key[2:]
+
+    account = Account.from_key(private_key)
+    signer = EthAccountSigner(account)
+    print(f"[get_x402_client] ✅ Private key loaded for wallet: {account.address}")
+
+    client = x402Client()
     register_exact_evm_client(client, signer)
     return client
 

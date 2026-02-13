@@ -49,7 +49,7 @@ class ForceToolPaymentProcessor(LlmAgent):
         if hasattr(context.session, 'events') and context.session.events:
             print(f"[PAYMENT_PROCESSOR] Checking {len(context.session.events)} events...")
             for i, event in enumerate(context.session.events[-5:]):  # Check last 5 events
-                if hasattr(event, 'content') and event.content:
+                if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts') and event.content.parts:
                     for part in event.content.parts:
                         if hasattr(part, 'text'):
                             text = part.text.strip()
