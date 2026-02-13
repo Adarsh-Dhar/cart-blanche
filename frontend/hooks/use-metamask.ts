@@ -1,16 +1,22 @@
+// Add TypeScript declaration for window.ethereum
+declare global {
+  interface Window {
+    ethereum?: any;
+  }
+}
 import { useState, useCallback } from 'react';
 import { createWalletClient, custom } from 'viem';
 import { sepolia } from 'viem/chains';
 
-export function useX402() {
+export function useMetaMask() {
   const [address, setAddress] = useState<`0x${string}` | null>(null);
 
   const connect = useCallback(async () => {
-    if (typeof window === 'undefined' || typeof window.ethereum === 'undefined') {
+    if (typeof window.ethereum === 'undefined') {
       throw new Error("MetaMask is not installed.");
     }
     const client = createWalletClient({
-      chain: sepolia, // Make sure this matches the chainId in your mandate
+      chain: sepolia, // Assuming Sepolia from your chainId 11155111
       transport: custom(window.ethereum)
     });
     const [account] = await client.requestAddresses();
@@ -22,7 +28,6 @@ export function useX402() {
     let currentAddress = address;
     let currentClient;
     
-    // Connect if not already connected
     if (!currentAddress) {
        const connection = await connect();
        currentAddress = connection.account;
@@ -34,24 +39,19 @@ export function useX402() {
         });
     }
 
-    // 🚨 Extract the EIP-712 components exactly as MetaMask expects them
-    // The payload we get from the agent looks like: { domain: {...}, types: {...}, message: {...} }
+    // viem requires primaryType to be explicitly stated
     const typedData = {
         domain: payload.domain,
         types: payload.types,
-        primaryType: 'CartMandate', // This is critical for EIP-712
+        primaryType: 'CartMandate', 
         message: payload.message,
     };
 
-    console.log("Requesting signature for:", typedData);
-
-    // 🚨 Trigger MetaMask popup
     const signature = await currentClient.signTypedData({
         account: currentAddress,
         ...typedData
     });
 
-    console.log("Signature received:", signature);
     return signature;
   }, [address, connect]);
 

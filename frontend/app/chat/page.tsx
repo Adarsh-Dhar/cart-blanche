@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useX402 } from '@/hooks/useX402'
+import { useMetaMask } from '@/hooks/use-metamask'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -24,7 +24,7 @@ interface Message {
 export default function ChatPage() {
 
 
-  const { signMandate } = useX402();
+  const { signMandate } = useMetaMask();
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
@@ -47,16 +47,20 @@ export default function ChatPage() {
   }, [messages]);
 
   // Streaming chat logic with cart_mandate/intent detection
-  const sendMessage = async (e: React.FormEvent | React.KeyboardEvent) => {
-    e.preventDefault();
-    if (!input.trim()) return;
-    const userText = input;
+
+  // Streaming chat logic with cart_mandate/intent detection
+  const sendMessage = async (e?: React.FormEvent | React.KeyboardEvent, overrideText?: string) => {
+    if (e) e.preventDefault();
+    // Accept text from either the user input box, or from an automated background message
+    const userText = overrideText || input;
+    if (!userText.trim()) return;
+
     setMessages((prev) => [...prev, { role: 'user', text: userText }]);
-    setInput("");
+    if (!overrideText) setInput(""); // Only clear input box if it was a real user message
     setIsLoading(true);
 
     try {
-      // 1. 🚨 NEW: Explicitly create the session first!
+      // 1. Explicitly create the session first!
       await fetch(`http://127.0.0.1:8000/apps/shopping_concierge/users/guest_user/sessions/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -81,12 +85,10 @@ export default function ChatPage() {
         }),
       });
 
-      // 3. 🚨 NEW: Catch hidden backend errors and show them in the chat!
       if (!response.ok) {
         const errText = await response.text();
         throw new Error(`Backend Error ${response.status}: ${errText}`);
       }
-
       if (!response.body) throw new Error('No response body');
 
       const reader = response.body.getReader();
@@ -96,6 +98,7 @@ export default function ChatPage() {
 
       setMessages((prev) => [...prev, { role: 'assistant', text: '' }]);
 
+      // Read the stream
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -108,16 +111,29 @@ export default function ChatPage() {
             if (dataStr.trim() === '[DONE]') continue;
             try {
               const eventData = JSON.parse(dataStr);
-              // Extract the text token from the ADK payload
+              
+              // Extract the text token and filter out the ugly raw JSON
               if (eventData?.content?.parts?.[0]?.text) {
                 currentAgentMessage += eventData.content.parts[0].text;
+                
+                // Hack to hide the raw JSON block and instructions from the user's screen
+                let displayText = currentAgentMessage;
+                const stopIndex1 = displayText.indexOf('{ "cart_mandate"');
+                const stopIndex2 = displayText.indexOf('```json');
+                const stopIndex3 = displayText.indexOf('Please sign the EIP-712');
+                
+                if (stopIndex1 !== -1) displayText = displayText.substring(0, stopIndex1).trim();
+                else if (stopIndex2 !== -1) displayText = displayText.substring(0, stopIndex2).trim();
+                else if (stopIndex3 !== -1) displayText = displayText.substring(0, stopIndex3).trim();
+
                 setMessages((prev) => {
                   const newArray = [...prev];
-                  newArray[newArray.length - 1].text = currentAgentMessage;
+                  newArray[newArray.length - 1].text = displayText;
                   return newArray;
                 });
               }
-              // Detect cart_mandate or intent in the eventData
+
+              // Detect cart_mandate
               if (eventData?.content?.parts?.[0]?.intent || eventData?.content?.parts?.[0]?.cart_mandate) {
                 detectedIntent = eventData.content.parts[0].intent || eventData.content.parts[0].cart_mandate;
                 setMessages((prev) => {
@@ -132,6 +148,29 @@ export default function ChatPage() {
           }
         }
       }
+
+      // 3. 🚨 NEW: Auto-Trigger MetaMask Signature After Stream Finishes
+      if (detectedIntent && detectedIntent.domain) {
+        // A brief delay ensures the React UI finishes rendering the final text before MetaMask locks the thread
+        setTimeout(async () => {
+          try {
+            setMessages((prev) => [...prev, { role: 'assistant', text: 'Prompting MetaMask for secure signature approval...' }]);
+            
+            // Trigger MetaMask Popup
+            const signature = await signMandate(detectedIntent);
+            
+            setMessages((prev) => [...prev, { role: 'assistant', text: `✅ Payment mandate signed successfully!` }]);
+            
+            // Auto-send the signature back to the agent in the background!
+            await sendMessage(undefined, `Here is my signature for the CartMandate: ${signature}`);
+            
+          } catch (err: any) {
+            console.error("User rejected signature or it failed:", err);
+            setMessages((prev) => [...prev, { role: 'assistant', text: `❌ Payment signature was cancelled.` }]);
+          }
+        }, 500);
+      }
+
     } catch (error: any) {
       console.error(error);
       setMessages((prev) => [
