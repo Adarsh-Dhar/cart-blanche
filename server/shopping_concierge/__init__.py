@@ -1,15 +1,27 @@
-
-
-# Re-export agents for explicit import support
-
-# --- AGENT EXPORTS FOR ADK DISCOVERY ---
+# 1. Import your main orchestrator (conductor)
 from .conductor import conductor
+
 from .x402_settlement import payment_processor_agent
 
-# The ADK looks for this variable name in this file to register the app as 'shopping_concierge'
-AGENTS = [conductor, payment_processor_agent]
+# 🚨 CRITICAL FIX: The ADK explicitly looks for the exact variable name 'agent'
+agent = conductor
+root_agent = conductor
 
-# Export the main agent under the expected name for ADK auto-discovery
-shopping_concierge = conductor
+# 3. Keep your existing sub-agent exports
+from .shopping_agent import shopping_agent
+from .merchant_agent import merchant_agent
 
-print("[DEBUG] __init__.py imported and shopping_concierge agent exported.")
+from .adk_context_utils import SESSION_SERVICE, get_or_create_session, build_invocation_context
+
+# 4. Silence Pylance by explicitly declaring what this module exports
+__all__ = [
+	"conductor",
+	"root_agent",
+	"agent",
+	"shopping_agent",
+	"merchant_agent",
+	"SESSION_SERVICE",
+	"get_or_create_session",
+	"build_invocation_context"
+]
+print("[DEBUG] ADK Discovery variables successfully loaded!")

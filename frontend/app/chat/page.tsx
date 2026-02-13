@@ -54,10 +54,22 @@ export default function ChatPage() {
     setMessages((prev) => [...prev, { role: 'user', text: userText }]);
     setInput("");
     setIsLoading(true);
+
     try {
-      const response = await fetch('http://localhost:8000/run_sse', {
+      // 1. 🚨 NEW: Explicitly create the session first!
+      await fetch(`http://127.0.0.1:8000/apps/shopping_concierge/users/guest_user/sessions/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      }).catch(err => console.warn("Session might already exist:", err));
+
+      // 2. Call the ADK SSE endpoint
+      const response = await fetch('http://127.0.0.1:8000/run_sse', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream'
+        },
         body: JSON.stringify({
           app_name: 'shopping_concierge',
           user_id: 'guest_user',
@@ -68,21 +80,32 @@ export default function ChatPage() {
           },
         }),
       });
+
+      // 3. 🚨 NEW: Catch hidden backend errors and show them in the chat!
+      if (!response.ok) {
+        const errText = await response.text();
+        throw new Error(`Backend Error ${response.status}: ${errText}`);
+      }
+
       if (!response.body) throw new Error('No response body');
+
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let currentAgentMessage = '';
       let detectedIntent: any = null;
+
       setMessages((prev) => [...prev, { role: 'assistant', text: '' }]);
+
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
         const lines = chunk.split('\n');
+
         for (const line of lines) {
           if (line.startsWith('data: ')) {
             const dataStr = line.slice(6);
-            if (dataStr === '[DONE]') continue;
+            if (dataStr.trim() === '[DONE]') continue;
             try {
               const eventData = JSON.parse(dataStr);
               // Extract the text token from the ADK payload
@@ -94,7 +117,7 @@ export default function ChatPage() {
                   return newArray;
                 });
               }
-              // Detect cart_mandate or intent in the eventData (if present)
+              // Detect cart_mandate or intent in the eventData
               if (eventData?.content?.parts?.[0]?.intent || eventData?.content?.parts?.[0]?.cart_mandate) {
                 detectedIntent = eventData.content.parts[0].intent || eventData.content.parts[0].cart_mandate;
                 setMessages((prev) => {
@@ -109,10 +132,11 @@ export default function ChatPage() {
           }
         }
       }
-    } catch (error) {
+    } catch (error: any) {
+      console.error(error);
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', text: 'Error contacting backend agent.' },
+        { role: 'assistant', text: `⚠️ ${error.message}` },
       ]);
     } finally {
       setIsLoading(false);
