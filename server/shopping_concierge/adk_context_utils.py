@@ -73,7 +73,7 @@ def get_x402_client():
     """
     print("[get_x402_client] Creating x402 client...")
     
-    from x402.http import FacilitatorConfig, HTTPFacilitatorClient
+    print("[get_x402_client] Creating base x402 client...")
     from x402.http.clients import x402HttpxClient
     from x402.mechanisms.evm.exact import ExactEvmClientScheme
     
@@ -100,7 +100,7 @@ def get_x402_client():
     network_id = "eip155:84532"  # Base Sepolia
     client.register(network_id, ExactEvmClientScheme(private_key=private_key))
     print(f"[get_x402_client] ✅ Registered EVM scheme for {network_id}")
-    
+    register_exact_evm_client(client, signer)
     return client
 
 async def get_or_create_session(app_name: str, user_id: str):
