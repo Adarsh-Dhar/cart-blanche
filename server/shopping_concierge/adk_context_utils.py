@@ -1,17 +1,22 @@
-class SigningTool:
-    """Stub for SigningTool to allow import in vault_agent.py."""
-    def __init__(self):
-        pass
-
-
 import os
 import json
 import hashlib
 import httpx
 from ecdsa import SigningKey, VerifyingKey, SECP256k1, BadSignatureError
 from dotenv import load_dotenv
+from google.adk.sessions import InMemorySessionService
 
-FACILITATOR_URL = os.getenv("FACILIATOR_URL")
+# Initialize session service
+SESSION_SERVICE = InMemorySessionService()
+
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+
+FACILITATOR_URL = os.getenv("FACILITATOR_URL", "https://x402.org/facilitator")
+
+class SigningTool:
+    """Stub for SigningTool to allow import in vault_agent.py."""
+    def __init__(self):
+        pass
 
 async def settle_via_facilitator(payment_mandate: dict):
     """
@@ -27,8 +32,6 @@ async def settle_via_facilitator(payment_mandate: dict):
         else:
             raise Exception(f"Facilitator error: {response.text}")
 
-load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
-
 def canonical_json(data):
     """Return a canonical JSON string (sorted keys, no whitespace)."""
     return json.dumps(data, sort_keys=True, separators=(",", ":"))
@@ -41,3 +44,85 @@ def get_signing_key():
 
 def get_verifying_key_from_private():
     return get_signing_key().verifying_key
+
+def sign_mandate(payload: dict) -> tuple[str, str]:
+    """Sign a payment mandate and return (signature, signer_address)"""
+    sk = get_signing_key()
+    vk = sk.verifying_key
+    
+    canonical = canonical_json(payload)
+    msg_hash = hashlib.sha256(canonical.encode()).digest()
+    
+    signature = sk.sign_digest(msg_hash, sigencode=lambda r, s, order: bytes.fromhex(f"{r:064x}{s:064x}"))
+    signature_hex = signature.hex()
+    
+    signer_address = "0x" + hashlib.sha256(vk.to_string()).hexdigest()[:40]
+    
+    return signature_hex, signer_address
+
+def get_x402_client():
+    """
+    Returns a configured x402 HTTP client for making payments.
+    
+    This function:
+    1. Gets the agent's private key from environment
+    2. Configures the facilitator URL
+    3. Creates an x402 HTTP client
+    4. Registers the EVM payment scheme for Base Sepolia
+    5. Returns the configured client
+    """
+    print("[get_x402_client] Creating x402 client...")
+    
+    from x402.http import FacilitatorConfig, HTTPFacilitatorClient
+    from x402.http.clients import x402HttpxClient
+    from x402.mechanisms.evm.exact import ExactEvmClientScheme
+    
+    # Get private key from environment
+    private_key = os.getenv("AGENT_PRIVATE_KEY")
+    if not private_key:
+        raise ValueError("AGENT_PRIVATE_KEY not set in .env - cannot create x402 client")
+    
+    print(f"[get_x402_client] ✅ Private key loaded (length: {len(private_key)})")
+    
+    # Configure facilitator
+    facilitator_url = os.getenv("FACILITATOR_URL", "https://x402.org/facilitator")
+    print(f"[get_x402_client] Using facilitator: {facilitator_url}")
+    
+    facilitator = HTTPFacilitatorClient(
+        FacilitatorConfig(url=facilitator_url)
+    )
+    
+    # Create x402 client
+    client = x402HttpxClient(facilitator=facilitator)
+    print("[get_x402_client] ✅ x402 HTTP client created")
+    
+    # Register the EVM payment scheme for Base Sepolia
+    network_id = "eip155:84532"  # Base Sepolia
+    client.register(network_id, ExactEvmClientScheme(private_key=private_key))
+    print(f"[get_x402_client] ✅ Registered EVM scheme for {network_id}")
+    
+    return client
+
+async def get_or_create_session(app_name: str, user_id: str):
+    """Get or create a session for the given app and user"""
+    sessions = await SESSION_SERVICE.list_sessions(user_id=user_id, app_name=app_name)
+    if sessions:
+        return sessions[0]
+    
+    return await SESSION_SERVICE.create_session(user_id=user_id, app_name=app_name)
+
+def build_invocation_context(agent, session, session_service, state: dict = None, user_content: dict = None):
+    """Build an invocation context for running an agent"""
+    from google.adk.core.invocation_context import InvocationContext
+    
+    if state:
+        session.state.update(state)
+    
+    context = InvocationContext(
+        agent=agent,
+        session=session,
+        session_service=session_service,
+        user_content=user_content
+    )
+    
+    return context
