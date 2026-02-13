@@ -9,147 +9,116 @@ import { Card } from '@/components/ui/card'
 import { Send, Menu, Settings, ShoppingBag, Zap, Lock } from 'lucide-react'
 import { MessageTimestamp } from '@/components/message-timestamp'
 
+
 interface Message {
-  id: string
-  role: 'user' | 'assistant'
-  content: string
-  timestamp: Date
-  status?: 'thinking' | 'complete'
+  role: 'user' | 'assistant';
+  text: string;
   intent?: {
-    category?: string
-    budget?: number
-    items?: string[]
-  }
+    category?: string;
+    budget?: number;
+    items?: string[];
+    [key: string]: any;
+  };
 }
 
 export default function ChatPage() {
-  const { signMandate } = useX402()
+
+
+  const { signMandate } = useX402();
   const [messages, setMessages] = useState<Message[]>([
     {
-      id: '1',
       role: 'assistant',
-      content: 'Welcome to Galactic Gateway AI Shopping Concierge! I\'m here to help you find the perfect space-themed items. What are you looking for today?',
-      timestamp: new Date(),
-      status: 'complete',
+      text: "Welcome to Galactic Gateway AI Shopping Concierge! I'm here to help you find the perfect space-themed items. What are you looking for today?",
     },
-  ])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [showSidebar, setShowSidebar] = useState(true)
-  const [userId, setUserId] = useState('')
-  const [sessionId, setSessionId] = useState('test-session-001')
-  const messagesEndRef = useRef<HTMLDivElement>(null)
+  ]);
+  const [input, setInput] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [userId, setUserId] = useState("");
+  const [sessionId, setSessionId] = useState("test-session-001");
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   useEffect(() => {
-    scrollToBottom()
-  }, [messages])
+    scrollToBottom();
+  }, [messages]);
 
-  const handleSendMessage = async () => {
-    if (!input.trim()) return
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: 'user',
-      content: input,
-      timestamp: new Date(),
-    }
-
-    setMessages((prev) => [...prev, userMessage])
-    setInput('')
-    setLoading(true)
-
-    // Send the user's message as user_content in Gemini/ADK schema (correct key and structure)
-    const bodyToSend = {
-      user_content: {
-        role: 'user',
-        parts: [{ text: input }]
-      },
-      user_id: userId || 'user',
-      session_id: sessionId || undefined
-    }
-
+  // Streaming chat logic with cart_mandate/intent detection
+  const sendMessage = async (e: React.FormEvent | React.KeyboardEvent) => {
+    e.preventDefault();
+    if (!input.trim()) return;
+    const userText = input;
+    setMessages((prev) => [...prev, { role: 'user', text: userText }]);
+    setInput("");
+    setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/apps/shopping_concierge/run', {
+      const response = await fetch('http://localhost:8000/run_sse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyToSend),
-      })
-      let data = null
-      let errorMsg = ''
-      try {
-        data = await response.json()
-      } catch (err) {
-        errorMsg = 'Invalid response from backend.'
-      }
-      if (!response.ok || errorMsg) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: (Date.now() + 2).toString(),
-            role: 'assistant',
-            content: `Agent Error: ${errorMsg || (data && (data.error || data.traceback)) || 'Unknown error.'}`,
-            timestamp: new Date(),
-            status: 'complete',
+        body: JSON.stringify({
+          app_name: 'shopping_concierge',
+          user_id: 'guest_user',
+          session_id: sessionId,
+          new_message: {
+            role: 'user',
+            parts: [{ text: userText }],
           },
-        ])
-        return
-      }
-      // Prefer agent_response if present, otherwise fallback to discovery_data
-      let content = 'No response from agent.'
-      let intent = undefined
-      if (data.agent_response && typeof data.agent_response === 'string' && data.agent_response.trim()) {
-        // If agent_response is a generic fallback, show a user-friendly message
-        if (/please provide a request/i.test(data.agent_response)) {
-          content = 'The agent could not understand your request. Please try rephrasing or be more specific.'
-        } else {
-          content = data.agent_response
-        }
-      } else if (data.discovery_data) {
-        // If discovery_data is a string, show it directly
-        if (typeof data.discovery_data === 'string') {
-          content = data.discovery_data
-        } else if (data.discovery_data.text_result) {
-          // If text_result is a generic fallback, show a user-friendly message
-          if (/please provide a request/i.test(data.discovery_data.text_result)) {
-            content = 'The agent could not understand your request. Please try rephrasing or be more specific.'
-          } else {
-            content = data.discovery_data.text_result
+        }),
+      });
+      if (!response.body) throw new Error('No response body');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let currentAgentMessage = '';
+      let detectedIntent: any = null;
+      setMessages((prev) => [...prev, { role: 'assistant', text: '' }]);
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6);
+            if (dataStr === '[DONE]') continue;
+            try {
+              const eventData = JSON.parse(dataStr);
+              // Extract the text token from the ADK payload
+              if (eventData?.content?.parts?.[0]?.text) {
+                currentAgentMessage += eventData.content.parts[0].text;
+                setMessages((prev) => {
+                  const newArray = [...prev];
+                  newArray[newArray.length - 1].text = currentAgentMessage;
+                  return newArray;
+                });
+              }
+              // Detect cart_mandate or intent in the eventData (if present)
+              if (eventData?.content?.parts?.[0]?.intent || eventData?.content?.parts?.[0]?.cart_mandate) {
+                detectedIntent = eventData.content.parts[0].intent || eventData.content.parts[0].cart_mandate;
+                setMessages((prev) => {
+                  const newArray = [...prev];
+                  newArray[newArray.length - 1].intent = detectedIntent;
+                  return newArray;
+                });
+              }
+            } catch (err) {
+              // Ignore parse errors for non-JSON lines
+            }
           }
-        } else {
-          content = JSON.stringify(data.discovery_data, null, 2)
         }
-        intent = data.discovery_data.intent || data.discovery_data.mandate || undefined
       }
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content,
-          timestamp: new Date(),
-          status: 'complete',
-          intent,
-        },
-      ])
     } catch (error) {
       setMessages((prev) => [
         ...prev,
-        {
-          id: (Date.now() + 2).toString(),
-          role: 'assistant',
-          content: 'Error contacting backend agent.',
-          timestamp: new Date(),
-          status: 'complete',
-        },
-      ])
+        { role: 'assistant', text: 'Error contacting backend agent.' },
+      ]);
     } finally {
-      setLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
+
 
   return (
     <div className="min-h-screen bg-background flex">
@@ -187,12 +156,8 @@ export default function ChatPage() {
               onClick={() => {
                 setMessages([
                   {
-                    id: '1',
                     role: 'assistant',
-                    content:
-                      'Welcome to a new conversation! What would you like to shop for today?',
-                    timestamp: new Date(),
-                    status: 'complete',
+                    text: 'Welcome to a new conversation! What would you like to shop for today?'
                   },
                 ])
               }}
@@ -264,9 +229,9 @@ export default function ChatPage() {
             </div>
           </Card>
 
-          {messages.map((message) => (
+          {messages.map((message, idx) => (
             <div
-              key={message.id}
+              key={idx}
               className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
@@ -276,9 +241,8 @@ export default function ChatPage() {
                     : 'bg-card border border-border/50 rounded-2xl rounded-tl-none'
                 } px-4 py-3`}
               >
-                <p className="text-sm">{message.content}</p>
-
-                {/* Intent Display */}
+                <p className="text-sm">{message.text}</p>
+                {/* Intent/mandate display and approval */}
                 {message.intent && (
                   <Card className="mt-3 border-border/50 bg-background/50 p-3 text-foreground">
                     <p className="text-xs font-semibold mb-2">Intent Mandate Preview</p>
@@ -296,7 +260,7 @@ export default function ChatPage() {
                       <div className="text-xs">
                         <p className="text-muted-foreground mb-1">Suggested Items:</p>
                         <ul className="ml-2 space-y-0.5">
-                          {message.intent.items.map((item, i) => (
+                          {message.intent.items.map((item: string, i: number) => (
                             <li key={i} className="text-xs">
                               • {item}
                             </li>
@@ -308,45 +272,37 @@ export default function ChatPage() {
                       size="sm"
                       className="mt-2 w-full bg-primary text-primary-foreground hover:bg-primary/90 h-8"
                       onClick={async () => {
-                        // Simulate CartMandate approval and signing
-                        const signed = await signMandate(message.intent)
+                        // Call MetaMask signMandate hook
+                        const signed = await signMandate(message.intent);
                         // Send signed mandate to backend (main app)
-                        await fetch(`${process.env.NEXT_PUBLIC_AGENT_URL}/apps/main/run`, {
+                        await fetch('http://localhost:8000/run_sse', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
-                            user_id: 'adarsh_user',
-                            session_id: 'current_session',
+                            app_name: 'main',
+                            user_id: 'guest_user',
+                            session_id: sessionId,
                             new_message: {
                               role: 'user',
                               parts: [{ text: JSON.stringify(signed) }],
                             },
                           }),
-                        })
-                        // Optionally, show confirmation to user
+                        });
                         setMessages((prev) => [
                           ...prev,
-                          {
-                            id: (Date.now() + 3).toString(),
-                            role: 'assistant',
-                            content: 'Mandate approved and sent for processing.',
-                            timestamp: new Date(),
-                            status: 'complete',
-                          },
-                        ])
+                          { role: 'assistant', text: 'Mandate approved and sent for processing.' },
+                        ]);
                       }}
                     >
                       Approve Intent
                     </Button>
                   </Card>
                 )}
-
-                <MessageTimestamp date={message.timestamp} />
               </div>
             </div>
           ))}
 
-          {loading && (
+          {isLoading && (
             <div className="flex justify-start">
               <div className="bg-card border border-border/50 rounded-2xl rounded-tl-none px-4 py-3">
                 <div className="flex gap-2">
@@ -368,17 +324,16 @@ export default function ChatPage() {
               placeholder="Describe what you're looking for..."
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyPress={(e) => {
+              onKeyDown={(e) => {
                 if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  handleSendMessage()
+                  sendMessage(e);
                 }
               }}
               className="border-0 bg-transparent focus-visible:ring-0 focus-visible:outline-none"
             />
             <Button
-              onClick={handleSendMessage}
-              disabled={loading || !input.trim()}
+              onClick={sendMessage}
+              disabled={isLoading || !input.trim()}
               size="sm"
               className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg"
             >
@@ -391,5 +346,4 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
-  )
-}
+  )}
