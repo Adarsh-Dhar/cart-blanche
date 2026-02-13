@@ -1,30 +1,21 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { useMetaMask } from '@/hooks/use-metamask'
+import { useX402 } from '@/hooks/useX402' // 🚨 Updated to use the correct viem hook
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
-import { Send, Menu, Settings, ShoppingBag, Zap, Lock } from 'lucide-react'
-import { MessageTimestamp } from '@/components/message-timestamp'
-
+import { Send, Menu, Settings, ShoppingBag, Zap } from 'lucide-react'
 
 interface Message {
   role: 'user' | 'assistant';
   text: string;
-  intent?: {
-    category?: string;
-    budget?: number;
-    items?: string[];
-    [key: string]: any;
-  };
+  intent?: any;
 }
 
 export default function ChatPage() {
-
-
-  const { signMandate } = useMetaMask();
+  const { signMandate } = useX402(); // 🚨 Hook initialization
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
@@ -34,7 +25,7 @@ export default function ChatPage() {
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
-  const [userId, setUserId] = useState("");
+  const [userId, setUserId] = useState("guest_user");
   const [sessionId, setSessionId] = useState("test-session-001");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -46,11 +37,10 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // Streaming chat logic with cart_mandate/intent detection
-
-  // Streaming chat logic with cart_mandate/intent detection
+  // Streaming chat logic with cart_mandate auto-interception
   const sendMessage = async (e?: React.FormEvent | React.KeyboardEvent, overrideText?: string) => {
     if (e) e.preventDefault();
+    
     // Accept text from either the user input box, or from an automated background message
     const userText = overrideText || input;
     if (!userText.trim()) return;
@@ -60,8 +50,8 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      // 1. Explicitly create the session first!
-      await fetch(`http://127.0.0.1:8000/apps/shopping_concierge/users/guest_user/sessions/${sessionId}`, {
+      // 1. Explicitly create the session first
+      await fetch(`http://127.0.0.1:8000/apps/shopping_concierge/users/${userId}/sessions/${sessionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({})
@@ -76,7 +66,7 @@ export default function ChatPage() {
         },
         body: JSON.stringify({
           app_name: 'shopping_concierge',
-          user_id: 'guest_user',
+          user_id: userId,
           session_id: sessionId,
           new_message: {
             role: 'user',
@@ -94,7 +84,6 @@ export default function ChatPage() {
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let currentAgentMessage = '';
-      let detectedIntent: any = null;
 
       setMessages((prev) => [...prev, { role: 'assistant', text: '' }]);
 
@@ -116,29 +105,17 @@ export default function ChatPage() {
               if (eventData?.content?.parts?.[0]?.text) {
                 currentAgentMessage += eventData.content.parts[0].text;
                 
-                // Hack to hide the raw JSON block and instructions from the user's screen
+                // Hide the raw JSON block and instructions from the user's UI
                 let displayText = currentAgentMessage;
-                const stopIndex1 = displayText.indexOf('{ "cart_mandate"');
-                const stopIndex2 = displayText.indexOf('```json');
-                const stopIndex3 = displayText.indexOf('Please sign the EIP-712');
+                const stopIndex = displayText.indexOf('```json');
+                const stopIndexText = displayText.indexOf('Please sign the EIP-712');
                 
-                if (stopIndex1 !== -1) displayText = displayText.substring(0, stopIndex1).trim();
-                else if (stopIndex2 !== -1) displayText = displayText.substring(0, stopIndex2).trim();
-                else if (stopIndex3 !== -1) displayText = displayText.substring(0, stopIndex3).trim();
+                if (stopIndex !== -1) displayText = displayText.substring(0, stopIndex).trim();
+                else if (stopIndexText !== -1) displayText = displayText.substring(0, stopIndexText).trim();
 
                 setMessages((prev) => {
                   const newArray = [...prev];
                   newArray[newArray.length - 1].text = displayText;
-                  return newArray;
-                });
-              }
-
-              // Detect cart_mandate
-              if (eventData?.content?.parts?.[0]?.intent || eventData?.content?.parts?.[0]?.cart_mandate) {
-                detectedIntent = eventData.content.parts[0].intent || eventData.content.parts[0].cart_mandate;
-                setMessages((prev) => {
-                  const newArray = [...prev];
-                  newArray[newArray.length - 1].intent = detectedIntent;
                   return newArray;
                 });
               }
@@ -149,15 +126,33 @@ export default function ChatPage() {
         }
       }
 
-      // 3. 🚨 NEW: Auto-Trigger MetaMask Signature After Stream Finishes
-      if (detectedIntent && detectedIntent.domain) {
-        // A brief delay ensures the React UI finishes rendering the final text before MetaMask locks the thread
+      // 3. 🚨 EXTRACT EIP-712 JSON FROM MARKDOWN
+      let mandatePayload: any = null;
+      
+      const jsonMatch = currentAgentMessage.match(/```(?:json)?\n([\s\S]*?)\n```/);
+      if (jsonMatch && jsonMatch[1]) {
+        try { mandatePayload = JSON.parse(jsonMatch[1].trim()); } catch (e) {}
+      }
+      
+      if (!mandatePayload) {
+        const rawJsonMatch = currentAgentMessage.match(/(\{[\s\S]*"domain"[\s\S]*\})/);
+        if (rawJsonMatch && rawJsonMatch[1]) {
+          try { mandatePayload = JSON.parse(rawJsonMatch[1].trim()); } catch (e) {}
+        }
+      }
+
+      if (mandatePayload?.cart_mandate) {
+        mandatePayload = mandatePayload.cart_mandate;
+      }
+
+      // 4. 🚨 AUTO-TRIGGER METAMASK SIGNATURE
+      if (mandatePayload && mandatePayload.domain) {
         setTimeout(async () => {
           try {
             setMessages((prev) => [...prev, { role: 'assistant', text: 'Prompting MetaMask for secure signature approval...' }]);
             
             // Trigger MetaMask Popup
-            const signature = await signMandate(detectedIntent);
+            const signature = await signMandate(mandatePayload);
             
             setMessages((prev) => [...prev, { role: 'assistant', text: `✅ Payment mandate signed successfully!` }]);
             
@@ -182,7 +177,6 @@ export default function ChatPage() {
     }
   };
 
-
   return (
     <div className="min-h-screen bg-background flex">
       {/* User/session input */}
@@ -192,7 +186,7 @@ export default function ChatPage() {
           placeholder="User ID"
           value={userId}
           onChange={e => setUserId(e.target.value)}
-          className="border px-2 py-1 rounded text-xs"
+          className="border px-2 py-1 rounded text-xs text-foreground bg-background"
           style={{ width: 120 }}
         />
         <input
@@ -200,7 +194,7 @@ export default function ChatPage() {
           placeholder="Session ID"
           value={sessionId}
           onChange={e => setSessionId(e.target.value)}
-          className="border px-2 py-1 rounded text-xs"
+          className="border px-2 py-1 rounded text-xs text-foreground bg-background"
           style={{ width: 140 }}
         />
       </div>
@@ -217,12 +211,13 @@ export default function ChatPage() {
               variant="outline"
               className="w-full justify-start border-border/50 text-left bg-transparent"
               onClick={() => {
+                setSessionId(`session-${Date.now()}`);
                 setMessages([
                   {
                     role: 'assistant',
                     text: 'Welcome to a new conversation! What would you like to shop for today?'
                   },
-                ])
+                ]);
               }}
             >
               + New Chat
@@ -304,63 +299,7 @@ export default function ChatPage() {
                     : 'bg-card border border-border/50 rounded-2xl rounded-tl-none'
                 } px-4 py-3`}
               >
-                <p className="text-sm">{message.text}</p>
-                {/* Intent/mandate display and approval */}
-                {message.intent && (
-                  <Card className="mt-3 border-border/50 bg-background/50 p-3 text-foreground">
-                    <p className="text-xs font-semibold mb-2">Intent Mandate Preview</p>
-                    {message.intent.category && (
-                      <p className="text-xs mb-1">
-                        <span className="text-muted-foreground">Category:</span> {message.intent.category}
-                      </p>
-                    )}
-                    {message.intent.budget && (
-                      <p className="text-xs mb-1">
-                        <span className="text-muted-foreground">Budget:</span> ${(message.intent.budget / 100).toFixed(2)}
-                      </p>
-                    )}
-                    {message.intent.items && message.intent.items.length > 0 && (
-                      <div className="text-xs">
-                        <p className="text-muted-foreground mb-1">Suggested Items:</p>
-                        <ul className="ml-2 space-y-0.5">
-                          {message.intent.items.map((item: string, i: number) => (
-                            <li key={i} className="text-xs">
-                              • {item}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    <Button
-                      size="sm"
-                      className="mt-2 w-full bg-primary text-primary-foreground hover:bg-primary/90 h-8"
-                      onClick={async () => {
-                        // Call MetaMask signMandate hook
-                        const signed = await signMandate(message.intent);
-                        // Send signed mandate to backend (main app)
-                        await fetch('http://localhost:8000/run_sse', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            app_name: 'main',
-                            user_id: 'guest_user',
-                            session_id: sessionId,
-                            new_message: {
-                              role: 'user',
-                              parts: [{ text: JSON.stringify(signed) }],
-                            },
-                          }),
-                        });
-                        setMessages((prev) => [
-                          ...prev,
-                          { role: 'assistant', text: 'Mandate approved and sent for processing.' },
-                        ]);
-                      }}
-                    >
-                      Approve Intent
-                    </Button>
-                  </Card>
-                )}
+                <p className="text-sm whitespace-pre-wrap">{message.text}</p>
               </div>
             </div>
           ))}
@@ -409,4 +348,5 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
-  )}
+  )
+}

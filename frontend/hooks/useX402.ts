@@ -21,34 +21,37 @@ export function useX402() {
   const signMandate = useCallback(async (payload: any) => {
     let currentAddress = address;
     let currentClient;
-    
     // Connect if not already connected
     if (!currentAddress) {
-       const connection = await connect();
-       currentAddress = connection.account;
-       currentClient = connection.client;
+      const connection = await connect();
+      currentAddress = connection.account;
+      currentClient = connection.client;
     } else {
-        currentClient = createWalletClient({
-            chain: sepolia,
-            transport: custom(window.ethereum)
-        });
+      currentClient = createWalletClient({
+        chain: sepolia,
+        transport: custom(window.ethereum)
+      });
     }
 
-    // 🚨 Extract the EIP-712 components exactly as MetaMask expects them
-    // The payload we get from the agent looks like: { domain: {...}, types: {...}, message: {...} }
+    // 🚨 FIX: Deep copy the domain and delete verifyingContract to prevent the internal RPC error
+    const sanitizedDomain = { ...payload.domain };
+    if (sanitizedDomain.verifyingContract) {
+      delete sanitizedDomain.verifyingContract;
+    }
+
     const typedData = {
-        domain: payload.domain,
-        types: payload.types,
-        primaryType: 'CartMandate', // This is critical for EIP-712
-        message: payload.message,
+      domain: sanitizedDomain, // Use the sanitized domain here
+      types: payload.types,
+      primaryType: 'CartMandate',
+      message: payload.message,
     };
 
     console.log("Requesting signature for:", typedData);
 
     // 🚨 Trigger MetaMask popup
     const signature = await currentClient.signTypedData({
-        account: currentAddress,
-        ...typedData
+      account: currentAddress,
+      ...typedData
     });
 
     console.log("Signature received:", signature);
