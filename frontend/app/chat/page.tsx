@@ -135,7 +135,7 @@ export default function ChatPage() {
       }
       
       if (!mandatePayload) {
-        const rawJsonMatch = currentAgentMessage.match(/(\{[\s\S]*"domain"[\s\S]*\})/);
+        const rawJsonMatch = currentAgentMessage.match(/(\{[\s\S]*"merchant_address"[\s\S]*\})/);
         if (rawJsonMatch && rawJsonMatch[1]) {
           try { mandatePayload = JSON.parse(rawJsonMatch[1].trim()); } catch (e) {}
         }
@@ -143,6 +143,56 @@ export default function ChatPage() {
 
       if (mandatePayload?.cart_mandate) {
         mandatePayload = mandatePayload.cart_mandate;
+      }
+
+      // 🚨 THE FIX: Bulletproof Reconstructor
+      // If the AI took a shortcut and sent the raw data without the EIP-712 wrapper, build it!
+      if (mandatePayload && mandatePayload.merchant_address && !mandatePayload.domain) {
+         // Safely extract product details whether the AI used a flat structure or an 'items' array
+         const pName = mandatePayload.items?.[0]?.name || mandatePayload.product_name || "Cart Order";
+         const pQty = mandatePayload.items?.[0]?.quantity || mandatePayload.product_quantity || 1;
+         const pPrice = mandatePayload.items?.[0]?.price || mandatePayload.product_unit_price || mandatePayload.amount;
+
+         mandatePayload = {
+            domain: {
+              name: "CartMandate",
+              version: "1",
+              chainId: 11155111 // Sepolia chain ID
+            },
+            types: {
+              CartMandate: [
+                { name: "merchant_address", type: "address" },
+                { name: "amount", type: "uint256" },
+                { name: "currency", type: "string" },
+                { name: "product_name", type: "string" },
+                { name: "product_quantity", type: "uint256" },
+                { name: "product_unit_price", type: "uint256" }
+              ]
+            },
+            message: {
+                merchant_address: mandatePayload.merchant_address,
+                amount: mandatePayload.amount,
+                currency: mandatePayload.currency || "USDC",
+                product_name: pName,
+                product_quantity: pQty,
+                product_unit_price: pPrice
+            }
+         };
+      }
+
+      // 🚨 Always sanitize merchant_address type in types to 'address' (never bytes32)
+      if (mandatePayload && mandatePayload.types) {
+        const typeKeys = Object.keys(mandatePayload.types);
+        for (const key of typeKeys) {
+          if (Array.isArray(mandatePayload.types[key])) {
+            mandatePayload.types[key] = mandatePayload.types[key].map((field: any) => {
+              if (field.name === 'merchant_address' && field.type !== 'address') {
+                return { ...field, type: 'address' };
+              }
+              return field;
+            });
+          }
+        }
       }
 
       // 4. 🚨 AUTO-TRIGGER METAMASK SIGNATURE
