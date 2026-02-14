@@ -72,8 +72,11 @@ class X402SettlementTool(BaseTool):
         # Recover signer
         recovered_address = Account.recover_message(signable_bytes, signature=signature)
         print(f"[X402_TOOL] Verified Signer: {recovered_address}")
-        if user_wallet_address and recovered_address.lower() != user_wallet_address.lower():
-            raise Exception(f"Signature does not match user wallet address. Expected {user_wallet_address}, got {recovered_address}")
+        if user_wallet_address is not None:
+            if recovered_address.lower() != user_wallet_address.lower():
+                raise Exception(f"Signature does not match user wallet address. Expected {user_wallet_address}, got {recovered_address}")
+        else:
+            print("[X402_TOOL] No expected wallet provided, using recovered signer as authenticated user.")
 
         try:
             # 2. Load the Agent's Private Key

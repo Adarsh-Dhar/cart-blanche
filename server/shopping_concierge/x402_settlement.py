@@ -140,7 +140,9 @@ class ForceToolPaymentProcessor(LlmAgent):
             combined_payload = {
                 "signature": signature,
                 "cart_mandate": cart_mandate,
-                "user_wallet_address": "0x53b53f65cc9e90da57f62e81fc0cb606dc8a92fb" 
+                # Remove the hardcoded check. The settlement tool will recover the address 
+                # from the signature and use THAT as the verified user identity.
+                "user_wallet_address": None 
             }
 
             try:
