@@ -5,7 +5,8 @@ from typing import AsyncIterator
 
 from .x402_settlement_tool import X402SettlementTool
 from pydantic import PrivateAttr
-
+import json
+import re
 
 class ForceToolPaymentProcessor(LlmAgent):
     """
@@ -25,113 +26,156 @@ class ForceToolPaymentProcessor(LlmAgent):
             You execute x402 payments by calling the x402_settlement tool.
             When you see {"authorized": true}, call the tool immediately.
             """,
-            tools=[],  # Temporarily empty, will set after _settlement_tool is initialized
+            tools=[],  
             output_key="settlement_receipt"
         )
         self._settlement_tool = X402SettlementTool()
         self.tools = [self._settlement_tool]
     
     async def run_async(self, context: InvocationContext) -> AsyncIterator:
-        """Override run to force tool execution when authorization is detected"""
-        
         print("\n" + "="*80)
         print("[PAYMENT_PROCESSOR] Agent starting...")
         print("="*80)
-        
-        # Check if authorization exists in session state
-        payment_mandate = context.session.state.get("payment_mandate")
-        print(f"[PAYMENT_PROCESSOR] payment_mandate from state: {payment_mandate}")
-        
-        # Check if authorization is in the conversation history
+
+        payment_mandate_raw = context.session.state.get("payment_mandate")
         authorization_found = False
-        
-        # Look at the last few messages in the session
-        if hasattr(context.session, 'events') and context.session.events:
-            print(f"[PAYMENT_PROCESSOR] Checking {len(context.session.events)} events...")
-            for i, event in enumerate(context.session.events[-5:]):  # Check last 5 events
+        signature = None
+
+        # 1. Extract the Signature
+        if payment_mandate_raw:
+            if isinstance(payment_mandate_raw, str):
+                if '"authorized": true' in payment_mandate_raw or '"authorized":true' in payment_mandate_raw:
+                    authorization_found = True
+                    try:
+                        parsed = json.loads(payment_mandate_raw)
+                        signature = parsed.get("signature")
+                    except:
+                        pass
+            elif isinstance(payment_mandate_raw, dict):
+                if payment_mandate_raw.get("authorized") is True:
+                    authorization_found = True
+                    signature = payment_mandate_raw.get("signature")
+
+        if not signature and hasattr(context.session, 'events') and context.session.events:
+            for event in context.session.events[-5:]:
                 if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts') and event.content.parts:
                     for part in event.content.parts:
-                        if hasattr(part, 'text'):
+                        if hasattr(part, 'text') and part.text:
                             text = part.text.strip()
-                            print(f"[PAYMENT_PROCESSOR] Event {i} text: {text[:100]}...")
-                            if text == '{"authorized": true}' or '"authorized": true' in text or '"authorized":true' in text:
+                            if '"authorized": true' in text or '"authorized":true' in text:
                                 authorization_found = True
-                                print(f"[PAYMENT_PROCESSOR] ✅ AUTHORIZATION FOUND in event {i}!")
-                                break
-                if authorization_found:
-                    break
-        
-        # Also check the payment_mandate value directly
-        if payment_mandate:
-            if isinstance(payment_mandate, str):
-                if '{"authorized": true}' in payment_mandate or '"authorized": true' in payment_mandate:
-                    authorization_found = True
-                    print(f"[PAYMENT_PROCESSOR] ✅ AUTHORIZATION FOUND in payment_mandate string!")
-            elif isinstance(payment_mandate, dict):
-                if payment_mandate.get("authorized") == True:
-                    authorization_found = True
-                    print(f"[PAYMENT_PROCESSOR] ✅ AUTHORIZATION FOUND in payment_mandate dict!")
-        
+                                try:
+                                    parsed = json.loads(text)
+                                    signature = parsed.get("signature")
+                                except:
+                                    pass
+
         if authorization_found:
+            print(f"[PAYMENT_PROCESSOR] ✅ AUTHORIZATION FOUND! Signature extracted: {str(signature)[:15]}...")
+            
+            # 2. Extract the CartMandate from the conversation history
+            cart_mandate = None
+            if hasattr(context.session, 'events') and context.session.events:
+                # Traverse backwards to find the last valid JSON block
+                for event in reversed(context.session.events):
+                    if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts') and event.content.parts:
+                        for part in event.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                text = part.text
+                                json_matches = re.findall(r'```(?:json)?\n([\s\S]*?)\n```', text)
+                                
+                                # If no markdown blocks, try searching for raw JSON objects
+                                if not json_matches:
+                                     try:
+                                         # Find everything between the first { and the last }
+                                         raw_json_match = re.search(r'(\{[\s\S]*\})', text)
+                                         if raw_json_match:
+                                             json_matches = [raw_json_match.group(1)]
+                                     except:
+                                         pass
+
+                                for match in reversed(json_matches): 
+                                    try:
+                                        payload = json.loads(match)
+                                        # Handle if wrapped
+                                        if "cart_mandate" in payload:
+                                            cart_mandate = payload["cart_mandate"]
+                                        # Handle if wrapped in message
+                                        elif "message" in payload and isinstance(payload["message"], dict):
+                                            msg = payload["message"]
+                                            if "merchant_address" in msg and "amount" in msg:
+                                                cart_mandate = {
+                                                    "merchant_address": msg.get("merchant_address"),
+                                                    "amount": msg.get("amount"),
+                                                    "currency": msg.get("currency", "USDC"),
+                                                    "chain_id": msg.get("chain_id", 324705682)
+                                                }
+                                        # Handle if flat
+                                        elif "merchant_address" in payload and "amount" in payload:
+                                            cart_mandate = {
+                                                "merchant_address": payload.get("merchant_address"),
+                                                "amount": payload.get("amount"),
+                                                "currency": payload.get("currency", "USDC"),
+                                                "chain_id": payload.get("chain_id", 324705682)
+                                            }
+                                        if cart_mandate:
+                                            break
+                                    except:
+                                        pass
+                            if cart_mandate:
+                                break
+                    if cart_mandate:
+                        break
+
+            if not cart_mandate:
+                print("[PAYMENT_PROCESSOR] ❌ Failed to extract cart_mandate from chat history!")
+                from google.adk.events import Event
+                error_content = Content(role="model", parts=[Part(text="❌ Payment processor error: Could not find original mandate in chat history.")])
+                yield Event(invocation_id=context.invocation_id, author=self.name, content=error_content)
+                return
+
             print("[PAYMENT_PROCESSOR] 🚀 FORCING TOOL EXECUTION...")
             
-            # FORCE the tool to execute
+            # 3. Combine the extracted data
+            combined_payload = {
+                "signature": signature,
+                "cart_mandate": cart_mandate,
+                "user_wallet_address": "0x53b53f65cc9e90da57f62e81fc0cb606dc8a92fb" 
+            }
+
             try:
                 print("[PAYMENT_PROCESSOR] Calling x402_settlement tool directly...")
-                
-                # Import ToolContext to create proper context
                 from google.adk.tools.base_tool import ToolContext
-                # ToolContext expects invocation_context as first argument
                 tool_context = ToolContext(context)
-                # Call the tool directly
+                
                 result = await self._settlement_tool.run_async(
-                    args={},
+                    args={"payment_mandate": combined_payload}, 
                     tool_context=tool_context
                 )
-                
                 print(f"[PAYMENT_PROCESSOR] ✅ Tool returned: {result}")
                 
-                # Format the response
                 if result.get("status") == "settled":
                     tx_id = result.get("tx_id", "Unknown")
-                    response_text = f"✅ Payment Complete! TX Hash: {tx_id}"
-                    network = result.get("network", "unknown")
-                    response_text += f"\nNetwork: {network}"
-                    message = result.get("message")
-                    if message:
-                        response_text += f"\nMerchant response: {message}"
+                    response_text = f"✅ **Payment Complete!** \n\nYour transaction has been securely settled on the SKALE network.\n\n* **TX Hash:** [{tx_id[:10]}...](https://base-sepolia-testnet-explorer.skalenodes.com/tx/{tx_id})\n* **Network:** {result.get('network', 'SKALE Base Sepolia')}"
                 else:
-                    reason = result.get("reason", "Unknown error")
-                    response_text = f"❌ Payment Failed: {reason}"
+                    response_text = f"❌ Payment Failed: {result.get('reason', 'Unknown error')}"
                 
-                print(f"[PAYMENT_PROCESSOR] Response text: {response_text}")
-                
-                # Update session state
                 context.session.state["settlement_receipt"] = result
                 
-                # Yield the response
                 from google.adk.events import Event
-                response_content = Content(
-                    role="model",
-                    parts=[Part(text=response_text)]
-                )
+                response_content = Content(role="model", parts=[Part(text=response_text)])
                 yield Event(
                     invocation_id=context.invocation_id,
                     author=self.name,
                     content=response_content
                 )
-                
             except Exception as e:
                 print(f"[PAYMENT_PROCESSOR] ❌ ERROR calling tool: {e}")
                 import traceback
                 traceback.print_exc()
                 
-                # Yield error response
                 from google.adk.events import Event
-                error_content = Content(
-                    role="model",
-                    parts=[Part(text=f"❌ Payment processor error: {e}")]
-                )
+                error_content = Content(role="model", parts=[Part(text=f"❌ Payment processor error: {e}")])
                 yield Event(
                     invocation_id=context.invocation_id,
                     author=self.name,
@@ -139,13 +183,11 @@ class ForceToolPaymentProcessor(LlmAgent):
                 )
         else:
             print("[PAYMENT_PROCESSOR] ❌ No authorization found. Skipping payment.")
-            print(f"[PAYMENT_PROCESSOR] payment_mandate was: {payment_mandate}")
-            
-            # No authorization - pass through silently
-            # Don't yield anything, just return
 
 
-# Export the custom agent
+# ==============================================================================
+# 🚨 IMPORTANT: This instantiation MUST stay at the very bottom of the file! 🚨
+# ==============================================================================
 payment_processor_agent = ForceToolPaymentProcessor()
 
 print("="*80)
