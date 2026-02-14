@@ -95,6 +95,22 @@ def get_x402_client():
     register_exact_evm_client(client, signer)
     return client
 
+def check_erc8004_reputation(agent_address: str) -> dict:
+        """
+        Mock ERC-8004 Agent Identity & Reputation lookup.
+        In production, this queries an on-chain registry mapping agent addresses 
+        to verified creator identities, supported protocols, and success rates.
+        """
+        if not agent_address:
+            return {"is_verified": False, "reputation_score": 0}
+        
+        return {
+            "is_verified": True,
+            "reputation_score": 98.5,
+            "total_transactions": 1432,
+            "agent_type": "Verified_Merchant",
+            "status": "Active"
+        }
 async def get_or_create_session(app_name: str, user_id: str):
     """Get or create a session for the given app and user"""
     sessions = await SESSION_SERVICE.list_sessions(user_id=user_id, app_name=app_name)
