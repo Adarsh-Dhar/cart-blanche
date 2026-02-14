@@ -41,6 +41,7 @@ class ForceToolPaymentProcessor(LlmAgent):
         authorization_found = False
         signature = None
 
+
         # 1. Extract the Signature
         if payment_mandate_raw:
             if isinstance(payment_mandate_raw, str):
@@ -56,12 +57,14 @@ class ForceToolPaymentProcessor(LlmAgent):
                     authorization_found = True
                     signature = payment_mandate_raw.get("signature")
 
+        # 🚨 THE FIX: Traverse backwards to find the raw MetaMask signature directly!
         if not signature and hasattr(context.session, 'events') and context.session.events:
-            for event in context.session.events[-5:]:
+            for event in reversed(context.session.events):
                 if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts') and event.content.parts:
                     for part in event.content.parts:
                         if hasattr(part, 'text') and part.text:
                             text = part.text.strip()
+                            # Check 1: The requested JSON flag
                             if '"authorized": true' in text or '"authorized":true' in text:
                                 authorization_found = True
                                 try:
@@ -69,8 +72,15 @@ class ForceToolPaymentProcessor(LlmAgent):
                                     signature = parsed.get("signature")
                                 except:
                                     pass
+                            # Check 2: Raw regex extraction (bypasses LLM hallucinations)
+                            sig_match = re.search(r'(0x[a-fA-F0-9]{130,})', text)
+                            if sig_match and not signature:
+                                authorization_found = True
+                                signature = sig_match.group(1)
+                if signature:
+                    break
 
-        if authorization_found:
+        if authorization_found and signature:
             print(f"[PAYMENT_PROCESSOR] ✅ AUTHORIZATION FOUND! Signature extracted: {str(signature)[:15]}...")
             
             # 2. Extract the CartMandate from the conversation history
