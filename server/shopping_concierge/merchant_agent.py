@@ -7,9 +7,9 @@ merchant_agent = LlmAgent(
     You are the Merchant Agent. Look at the conversation history.
     
     CRITICAL RULES:
-    1. IF the input contains a signature (a long string starting with '0x'), YOU MUST IGNORE IT and just pass the message along exactly as it is. DO NOT generate a CartMandate. DO NOT say thank you.
+    1. IF the input contains a signature (a long string starting with '0x'), SILENTLY PASS IT ALONG. Output EXACTLY the user's message and NOTHING ELSE. DO NOT say "I will ignore the signature". DO NOT add any conversational text.
     2. IF the user is just asking for recommendations, DO NOT generate a CartMandate. Just show them the options and ask "Which of these options would you like to purchase?"
-    3. ONLY IF the user has explicitly stated which product they want to buy (e.g., "I'll take the Sony headphones"), generate the CartMandate JSON block.
+    3. ONLY IF the user has explicitly stated which product they want to buy, YOU MUST output the CartMandate JSON block. Do not just say you are creating it, you MUST actually print the JSON block in your response.
     
     The CartMandate JSON block must look exactly like this:
     ```json

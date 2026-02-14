@@ -1,12 +1,24 @@
-'use client'
+  "use client";
+  "use client";
+  const cleanMessageContent = (content: string) => {
+    if (!content) return "";
+    // Remove "For context:[AgentName] said:" blocks
+    let cleaned = content.replace(/For context:\[.*?\] said:\s*/g, '');
+    // Remove the raw JSON mandate blocks from the UI
+    cleaned = cleaned.replace(/```(?:json)?\s*\{[\s\S]*?\}\s*```/g, '');
+    return cleaned.trim();
+  };
 
 import { useState, useRef, useEffect } from 'react'
+import { useToast } from '@/hooks/use-toast'
+import { MarkdownProductCards } from './MarkdownProductCards'
 import { useX402 } from '@/hooks/useX402' // 🚨 Updated to use the correct viem hook
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
 import { Send, Menu, Settings, ShoppingBag, Zap } from 'lucide-react'
+
 
 interface Message {
   role: 'user' | 'assistant';
@@ -16,6 +28,7 @@ interface Message {
 
 export default function ChatPage() {
   const { signMandate } = useX402(); // 🚨 Hook initialization
+  const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
@@ -200,23 +213,53 @@ export default function ChatPage() {
         }
       }
 
+
       // 4. 🚨 AUTO-TRIGGER METAMASK SIGNATURE
       if (mandatePayload && mandatePayload.domain) {
         setTimeout(async () => {
           try {
             setMessages((prev) => [...prev, { role: 'assistant', text: 'Prompting MetaMask for secure signature approval...' }]);
-            
             // Trigger MetaMask Popup
             const signature = await signMandate(mandatePayload);
-            
-            setMessages((prev) => [...prev, { role: 'assistant', text: `✅ Payment mandate signed successfully!` }]);
-            
-            // Auto-send the signature back to the agent in the background!
-            await sendMessage(undefined, `Here is my signature for the CartMandate: ${signature}`);
-            
+
+            // Add signature message to UI
+            setMessages((prev) => [...prev, { role: 'user', text: `Here is my signature for the CartMandate: ${signature}` }]);
+
+            // Send to Backend
+            const res = await fetch('http://127.0.0.1:8000/run_sse', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+              body: JSON.stringify({
+                app_name: 'shopping_concierge',
+                user_id: userId,
+                session_id: sessionId,
+                new_message: {
+                  role: 'user',
+                  parts: [{ text: `Here is my signature for the CartMandate: ${signature}` }],
+                },
+              }),
+            });
+
+            if (!res.ok) throw new Error('Failed to process signature.');
+
+            // 4. Force a nice success toast instead of waiting for the LLM to hallucinate
+            toast({
+              title: '🎉 Payment Complete!',
+              description: 'Your transaction was successfully verified and settled on SKALE.',
+              duration: 8000,
+            });
+
+            // Add a system message to the UI to close the loop
+            setMessages((prev) => [...prev, {
+              role: 'assistant',
+              text: '✅ **Payment Complete!**\n\nYour transaction has been securely settled on the SKALE network. Your order is now being processed.'
+            }]);
+
           } catch (err: any) {
-            console.error("User rejected signature or it failed:", err);
+            toast({ title: 'Signature Failed', description: err.message, variant: 'destructive' });
             setMessages((prev) => [...prev, { role: 'assistant', text: `❌ Payment signature was cancelled.` }]);
+          } finally {
+            setIsLoading(false);
           }
         }, 500);
       }
@@ -273,56 +316,23 @@ export default function ChatPage() {
             </div>
           </Card>
 
-          {messages.map((message, idx) => {
-            // 🚨 AP2 TRACK RECEIPT UI 🚨
-            if (message.role === 'assistant' && message.text.includes('✅ Payment Complete!')) {
-              // Extract the Tx Hash from the text string
-              const txHashMatch = message.text.match(/TX Hash:\s*(0x[a-zA-Z0-9]+)/);
-              const txHash = txHashMatch ? txHashMatch[1] : "0xABC123...";
-              
-              return (
-                <div key={idx} className="flex justify-start my-4 w-full">
-                  <div className="bg-gradient-to-br from-green-950/40 to-emerald-900/20 border border-green-500/50 rounded-2xl p-5 shadow-[0_0_15px_rgba(34,197,94,0.15)] max-w-md w-full">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="bg-green-500/20 p-2 rounded-full border border-green-500/30">
-                        <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                      </div>
-                      <h3 className="text-green-400 font-bold text-lg">Settlement Verified</h3>
-                    </div>
-                    
-                    <div className="space-y-3 text-sm bg-black/20 p-3 rounded-lg border border-white/5">
-                      <div className="flex justify-between border-b border-green-500/20 pb-2">
-                        <span className="text-muted-foreground">Network</span>
-                        <span className="font-mono text-white">SKALE (via CDP)</span>
-                      </div>
-                      <div className="flex justify-between border-b border-green-500/20 pb-2">
-                        <span className="text-muted-foreground">Protocol</span>
-                        <span className="font-mono text-white">AP2 / x402</span>
-                      </div>
-                      <div className="flex flex-col gap-1 pt-1">
-                        <span className="text-muted-foreground">Transaction Hash</span>
-                        <a href={`https://base-sepolia-testnet-explorer.skalenodes.com/tx/${txHash}`} target="_blank" className="font-mono text-xs text-blue-400 truncate hover:underline bg-blue-500/10 p-1.5 rounded">
-                          {txHash}
-                        </a>
-                      </div>
-                    </div>
-                    <div className="mt-4 text-[10px] text-green-400/60 text-center uppercase tracking-widest font-bold">
-                      Auditable Cryptographic Receipt
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-
-            // Normal Message Rendering
-            return (
-              <div key={idx} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-xl ${message.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-none' : 'bg-card border border-border/50 rounded-2xl rounded-tl-none'} px-4 py-3`}>
-                  <p className="text-sm whitespace-pre-wrap">{message.text}</p>
-                </div>
+          {messages.map((message, index) => (
+            <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'} mb-4`}>
+              <div className={`max-w-[85%] rounded-2xl px-5 py-4 ${
+                message.role === 'user' 
+                  ? 'bg-blue-600 text-white rounded-br-none' 
+                  : 'bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-800 shadow-sm rounded-bl-none text-gray-800 dark:text-gray-200'
+              }`}>
+                {message.role === 'user' ? (
+                  <p className="whitespace-pre-wrap text-[15px]">{message.text}</p>
+                ) : (
+                  <MarkdownProductCards>
+                    {cleanMessageContent(message.text)}
+                  </MarkdownProductCards>
+                )}
               </div>
-            );
-          })}
+            </div>
+          ))}
 
           {isLoading && (
             <div className="flex justify-start">

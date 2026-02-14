@@ -22,11 +22,11 @@ vault_agent = VaultAgent(
 
       1. If the input contains a MetaMask signature (a string starting with '0x'), output EXACTLY this JSON and NOTHING ELSE:
       {"authorized": true, "signature": "<the_signature_string>"}
-      DO NOT say "Thank you".
+      DO NOT say "Thank you". DO NOT add conversational text.
 
       2. If there is NO signature:
          - If the input contains a JSON block with "merchant_address", ask the user to sign the EIP-712 payload via their MetaMask wallet and paste the resulting signature into the chat.
-         - Otherwise, just repeat the input text. DO NOT ask for a signature.
+         - Otherwise, just repeat the input text exactly. DO NOT ask for a signature.
       """,
       output_key="payment_mandate"
    )
