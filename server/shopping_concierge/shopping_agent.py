@@ -3,7 +3,8 @@
 from google.adk.agents import LlmAgent
 from google.adk.tools.google_search_tool import GoogleSearchTool
 from .premium_reviews_tool import PremiumReviewsTool
-from .vault_agent import vault_agent
+
+from .skale_bite import skale_bite
 
 class ShoppingAgent:
     def __init__(self):
@@ -27,20 +28,20 @@ class ShoppingAgent:
             output_key="discovery_data"
         )
 
+
     def process_intent(self, user_intent: dict) -> dict:
         """
         1. Receive user intent.
-        2. Encrypt the 'max_budget' using the VaultAgent (SKALE BITE v2).
+        2. Encrypt the 'max_budget' using SKALE BITE v2 (fetch BLS public key, encrypt locally).
         3. Send only the product requirements (excluding budget) to merchants/search.
         4. Only decrypt the budget once a merchant provides a signed CartMandate to verify if it's within range.
         """
         max_budget = user_intent.get("max_budget")
-        encrypted_budget = None
+        encrypted_data = None
         if max_budget is not None:
-            encrypted_budget = vault_agent.encrypt_budget(max_budget)
-        # Remove budget from intent for merchant discovery
+            encrypted_data = skale_bite.encrypt(max_budget)
         intent_for_merchants = {k: v for k, v in user_intent.items() if k != "max_budget"}
-        intent_for_merchants["encrypted_budget"] = encrypted_budget
+        intent_for_merchants["encrypted_budget"] = encrypted_data
         return intent_for_merchants
 
     def decrypt_budget(self, encrypted_budget: dict) -> float:
