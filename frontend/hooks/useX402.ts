@@ -9,8 +9,22 @@ export function useX402() {
     if (typeof window === 'undefined' || typeof window.ethereum === 'undefined') {
       throw new Error("MetaMask is not installed.");
     }
-    const client = createWalletClient({
-      chain: sepolia, // Make sure this matches the chainId in your mandate
+      const client = createWalletClient({
+        chain: {
+          id: 324705682,
+          name: 'SKALE Base Sepolia',
+          network: 'skale-base-sepolia',
+          nativeCurrency: {
+            name: 'SKALE',
+            symbol: 'SKALE',
+            decimals: 18
+          },
+          rpcUrls: {
+            default: {
+              http: ['https://base-sepolia-testnet.skalenodes.com/v1/jubilant-horrible-ancha']
+            }
+          }
+        }, // SKALE Base Sepolia chain
       transport: custom(window.ethereum)
     });
     const [account] = await client.requestAddresses();
@@ -28,7 +42,21 @@ export function useX402() {
       currentClient = connection.client;
     } else {
       currentClient = createWalletClient({
-        chain: sepolia,
+          chain: {
+            id: 324705682,
+            name: 'SKALE Base Sepolia',
+            network: 'skale-base-sepolia',
+            nativeCurrency: {
+              name: 'SKALE',
+              symbol: 'SKALE',
+              decimals: 18
+            },
+            rpcUrls: {
+              default: {
+                http: ['https://base-sepolia-testnet.skalenodes.com/v1/jubilant-horrible-ancha']
+              }
+            }
+          },
         transport: custom(window.ethereum)
       });
     }
@@ -83,13 +111,28 @@ export function useX402() {
       if (!field || typeof field !== 'object' || typeof field.name !== 'string' || typeof field.type !== 'string') {
         throw new Error(`EIP-712 types[${typedData.primaryType}] contains an invalid field definition: ${JSON.stringify(field)}`);
       }
-      // Lowercase the type string for viem compatibility
-      const normalizedType = field.type.toLowerCase();
-      if (!validEIP712Types.includes(normalizedType)) {
+      // Handle custom struct types and arrays
+      let normalizedType = field.type;
+      let isArrayType = false;
+      if (typeof normalizedType === 'string') {
+        if (normalizedType.endsWith('[]')) {
+          isArrayType = true;
+          normalizedType = normalizedType.slice(0, -2); // Remove []
+        }
+        // Only lowercase primitive types, not custom struct types
+        if (validEIP712Types.includes(normalizedType.toLowerCase())) {
+          normalizedType = normalizedType.toLowerCase();
+        }
+      } else {
+        throw new Error(`EIP-712 types[${typedData.primaryType}] field '${field.name}' has non-string type.`);
+      }
+      // Accept custom struct types (e.g., CartItem) and primitives
+      if (!validEIP712Types.includes(normalizedType) && !typedData.types[normalizedType]) {
         throw new Error(`EIP-712 types[${typedData.primaryType}] contains unsupported type '${field.type}' for field '${field.name}'.`);
       }
-      // Mutate the type to lowercase for viem
-      typedData.types[typedData.primaryType][i] = { ...field, type: normalizedType };
+      // Restore array type if needed
+      const finalType = isArrayType ? normalizedType + '[]' : normalizedType;
+      typedData.types[typedData.primaryType][i] = { ...field, type: finalType };
     }
 
     console.log("Requesting signature for:", typedData);

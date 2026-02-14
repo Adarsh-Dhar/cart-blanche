@@ -157,7 +157,7 @@ export default function ChatPage() {
             domain: {
               name: "CartMandate",
               version: "1",
-              chainId: 11155111 // Sepolia chain ID
+              chainId: 324705682 // SKALE Base Sepolia chain ID
             },
             types: {
               CartMandate: [
@@ -365,7 +365,7 @@ export default function ChatPage() {
                       </div>
                       <div className="flex flex-col gap-1 pt-1">
                         <span className="text-muted-foreground">Transaction Hash</span>
-                        <a href={`https://sepolia.basescan.org/tx/${txHash}`} target="_blank" className="font-mono text-xs text-blue-400 truncate hover:underline bg-blue-500/10 p-1.5 rounded">
+                        <a href={`https://base-sepolia-testnet-explorer.skalenodes.com/tx/${txHash}`} target="_blank" className="font-mono text-xs text-blue-400 truncate hover:underline bg-blue-500/10 p-1.5 rounded">
                           {txHash}
                         </a>
                       </div>

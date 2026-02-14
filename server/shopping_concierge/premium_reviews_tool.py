@@ -1,6 +1,6 @@
 from google.adk.tools.base_tool import BaseTool, ToolContext
 from typing import Any
-from cdp import Cdp, Wallet
+import os
 import os
 
 class PremiumReviewsTool(BaseTool):
@@ -18,22 +18,9 @@ class PremiumReviewsTool(BaseTool):
         # 1. Encounter the 402 Error
         print("[PREMIUM_REVIEWS] 🔴 HTTP 402 Payment Required: Endpoint costs 0.01 USDC")
         
-        # 2. Agent Autonomously Pays via CDP
-        print("[PREMIUM_REVIEWS] 💸 Agent automatically authorizing micro-payment via CDP Wallet...")
-        try:
-            # 🚨 IN A REAL ENVIRONMENT: 
-            # You would set CDP_API_KEY_NAME and CDP_API_KEY_PRIVATE_KEY env vars
-            # Cdp.configure_from_environment()
-            # agent_wallet = Wallet.fetch("my-agent-wallet-id")
-            # transfer = agent_wallet.transfer(0.01, "usdc", "0xAPI_PROVIDER_ADDRESS")
-            # transfer.wait()
-            # tx_hash = transfer.transaction_hash
-            
-            tx_hash = "0xcdp_micro_tx_999a8b..." # Simulated for the hackathon demo
-            print(f"[PREMIUM_REVIEWS] ✅ CDP micro-transaction successful! Hash: {tx_hash}")
-        except Exception as e:
-            print(f"[PREMIUM_REVIEWS] ⚠️ CDP Error: {e}. (Mocking success for demo flow)")
-            tx_hash = "0xcdp_micro_tx_mocked..."
+        # 2. Agent Autonomously Pays (CDP code removed for SKALE migration)
+        tx_hash = "0xskale_micro_tx_mocked..." # Simulated for the hackathon demo
+        print(f"[PREMIUM_REVIEWS]  SKALE micro-transaction successful! Hash: {tx_hash}")
 
         # 3. Return the gated data
         print("[PREMIUM_REVIEWS] 🔓 Unlocked premium data.")
