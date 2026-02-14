@@ -10,7 +10,7 @@ class ShoppingConciergeConductor(SequentialAgent):
     def __init__(self):
         super().__init__(
             name="shopping_concierge",
-            sub_agents=[shopping_agent, merchant_agent, payment_processor_agent]
+            sub_agents=[shopping_agent.llm_agent, merchant_agent, payment_processor_agent]
         )
 
     def orchestrate(self, user_intent: dict):
