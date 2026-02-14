@@ -30,22 +30,20 @@ class X402SettlementTool(BaseTool):
         actual_tx_hash = "0xCDP_CHECKOUT_TX_PENDING..."
         
         try:
-            # 🚨 CDP SDK IMPLEMENTATION 🚨
-            # If you have keys, uncomment the next 4 lines to execute real transactions:
+            # 🚨 REAL CDP SDK IMPLEMENTATION 🚨
+            Cdp.configure_from_environment() 
             
-            # Cdp.configure_from_environment() 
-            # agent_wallet = Wallet.fetch("my_merchant_escrow_wallet")
-            # transfer = agent_wallet.transfer(amount_usdc, "usdc", merchant_address)
-            # transfer.wait()
-            # actual_tx_hash = transfer.transaction_hash
+            wallet_id = os.environ.get("AGENT_WALLET_ID")
+            agent_wallet = Wallet.fetch(wallet_id)
             
-            print("[X402_TOOL] ✅ CDP SDK Transfer executed successfully!")
+            print(f"[X402_TOOL] Executing on-chain transfer of {amount_usdc} USDC to {merchant_address}...")
+            # Note: ensure your agent wallet has Base Sepolia USDC and ETH for gas
+            transfer = agent_wallet.transfer(amount_usdc, "usdc", merchant_address)
+            transfer.wait()
+            
+            actual_tx_hash = transfer.transaction_hash
+            print(f"[X402_TOOL] ✅ CDP SDK Transfer executed successfully! TX: {actual_tx_hash}")
+            
         except Exception as e:
-            print(f"[X402_TOOL] ⚠️ CDP SDK Error (API Keys likely missing): {e}")
-
-        return {
-            "status": "settled",
-            "tx_id": actual_tx_hash,
-            "network": "Base Sepolia (via CDP)",
-            "details": f"Signature {signature[:10]}... verified. {amount_usdc} USDC settled."
-        }
+            print(f"[X402_TOOL] ⚠️ CDP SDK Error: {e}")
+            actual_tx_hash = f"0xCDP_FAILED_{str(e)[:15]}"

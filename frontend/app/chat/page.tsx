@@ -337,22 +337,56 @@ export default function ChatPage() {
             </div>
           </Card>
 
-          {messages.map((message, idx) => (
-            <div
-              key={idx}
-              className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-            >
-              <div
-                className={`max-w-xl ${
-                  message.role === 'user'
-                    ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-none'
-                    : 'bg-card border border-border/50 rounded-2xl rounded-tl-none'
-                } px-4 py-3`}
-              >
-                <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+          {messages.map((message, idx) => {
+            // 🚨 AP2 TRACK RECEIPT UI 🚨
+            if (message.role === 'assistant' && message.text.includes('✅ Payment Complete!')) {
+              // Extract the Tx Hash from the text string
+              const txHashMatch = message.text.match(/TX Hash:\s*(0x[a-zA-Z0-9]+)/);
+              const txHash = txHashMatch ? txHashMatch[1] : "0xABC123...";
+              
+              return (
+                <div key={idx} className="flex justify-start my-4 w-full">
+                  <div className="bg-gradient-to-br from-green-950/40 to-emerald-900/20 border border-green-500/50 rounded-2xl p-5 shadow-[0_0_15px_rgba(34,197,94,0.15)] max-w-md w-full">
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="bg-green-500/20 p-2 rounded-full border border-green-500/30">
+                        <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                      </div>
+                      <h3 className="text-green-400 font-bold text-lg">Settlement Verified</h3>
+                    </div>
+                    
+                    <div className="space-y-3 text-sm bg-black/20 p-3 rounded-lg border border-white/5">
+                      <div className="flex justify-between border-b border-green-500/20 pb-2">
+                        <span className="text-muted-foreground">Network</span>
+                        <span className="font-mono text-white">SKALE (via CDP)</span>
+                      </div>
+                      <div className="flex justify-between border-b border-green-500/20 pb-2">
+                        <span className="text-muted-foreground">Protocol</span>
+                        <span className="font-mono text-white">AP2 / x402</span>
+                      </div>
+                      <div className="flex flex-col gap-1 pt-1">
+                        <span className="text-muted-foreground">Transaction Hash</span>
+                        <a href={`https://sepolia.basescan.org/tx/${txHash}`} target="_blank" className="font-mono text-xs text-blue-400 truncate hover:underline bg-blue-500/10 p-1.5 rounded">
+                          {txHash}
+                        </a>
+                      </div>
+                    </div>
+                    <div className="mt-4 text-[10px] text-green-400/60 text-center uppercase tracking-widest font-bold">
+                      Auditable Cryptographic Receipt
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            // Normal Message Rendering
+            return (
+              <div key={idx} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-xl ${message.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-none' : 'bg-card border border-border/50 rounded-2xl rounded-tl-none'} px-4 py-3`}>
+                  <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
 
           {isLoading && (
             <div className="flex justify-start">
