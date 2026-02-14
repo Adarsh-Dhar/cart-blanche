@@ -65,9 +65,15 @@ export default function Header() {
     <header className="sticky top-0 z-50 w-full border-b border-white/10 bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center justify-between px-4 mx-auto">
         <Link href="/" className="flex items-center space-x-2">
-          {/* A space-themed gradient logo text */}
+          {/* Cart icon left of logo text */}
+          <img
+            src="/Gemini_Generated_Image_arlivbarlivbarli-removebg-preview.png"
+            alt="Cart Logo"
+            className="h-8 w-8 object-contain drop-shadow-[0_0_6px_#ffe95c80]"
+            style={{ maxHeight: '2rem' }}
+          />
           <span className="font-bold text-lg text-[#ffe95c] drop-shadow-[0_0_6px_#ffe95c80] tracking-wide">
-            Galactic Gateway
+            Cart Blanche
           </span>
         </Link>
         <div className="flex items-center gap-4">

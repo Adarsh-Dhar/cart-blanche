@@ -10,7 +10,7 @@ const geist = Geist({ subsets: ['latin'] })
 const geistMono = Geist_Mono({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
-  title: 'Galactic Gateway | AI Shopping Concierge',
+  title: 'Cart Blanche | AI Shopping Concierge',
   description: 'Futuristic space-themed shopping with AI-powered commerce. Discover exclusive space gear and fashion.',
   keywords: 'shopping, AI, space, fashion, gear, e-commerce',
   generator: 'v0.app',

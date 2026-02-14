@@ -10,23 +10,8 @@ import { CTASection } from '@/components/landing/cta-section'
 export default function HomePage() {
   return (
     <main className="min-h-screen bg-background overflow-hidden">
-      {/* Navigation */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-border/30 backdrop-blur-md bg-background/80">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2 font-bold text-xl text-neon">
-            <span className="text-2xl">🚀</span>
-            <span>Galactic Gateway</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Button variant="ghost" size="sm" asChild>
-              <Link href="/login">Sign In</Link>
-            </Button>
-            <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90" asChild>
-              <Link href="/signup">Get Started</Link>
-            </Button>
-          </div>
-        </div>
-      </nav>
+      {/* ...header removed, use shared Header component instead... */}
+
 
       {/* Main Content */}
       <div className="pt-16">
@@ -41,8 +26,8 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
             <div>
-              <h3 className="font-bold mb-4 text-neon">Galactic Gateway</h3>
-              <p className="text-sm text-muted-foreground">Future of space commerce</p>
+              <h3 className="font-bold mb-4 text-neon">Cart-Blanche</h3>
+              <p className="text-sm text-muted-foreground">Welcome to the Future of Agentic Commerce</p>
             </div>
             <div>
               <h4 className="font-semibold mb-4">Shop</h4>
@@ -70,7 +55,7 @@ export default function HomePage() {
             </div>
           </div>
           <div className="border-t border-border/30 pt-8 flex flex-col sm:flex-row justify-between items-center text-sm text-muted-foreground">
-            <p>&copy; 2026 Galactic Gateway. All rights reserved.</p>
+            <p>&copy; 2026 Cart-Blanche. All rights reserved.</p>
             <div className="flex gap-4 mt-4 sm:mt-0">
               <a href="#" className="hover:text-foreground transition">Twitter</a>
               <a href="#" className="hover:text-foreground transition">Discord</a>

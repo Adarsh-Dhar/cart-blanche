@@ -19,7 +19,7 @@ export default function ChatPage() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      text: "Welcome to Galactic Gateway AI Shopping Concierge! I'm here to help you find the perfect space-themed items. What are you looking for today?",
+      text: "Welcome to Cart Blanche AI Shopping Concierge! I'm here to help you find the perfect space-themed items. What are you looking for today?",
     },
   ]);
   const [input, setInput] = useState("");
@@ -229,77 +229,8 @@ export default function ChatPage() {
 
   return (
     <div className="min-h-screen bg-background flex">
-      {/* User/session input */}
-      <div className="absolute top-2 right-2 z-50 flex gap-2 bg-card/80 p-2 rounded shadow">
-        <input
-          type="text"
-          placeholder="User ID"
-          value={userId}
-          onChange={e => setUserId(e.target.value)}
-          className="border px-2 py-1 rounded text-xs text-foreground bg-background"
-          style={{ width: 120 }}
-        />
-        <input
-          type="text"
-          placeholder="Session ID"
-          value={sessionId}
-          onChange={e => setSessionId(e.target.value)}
-          className="border px-2 py-1 rounded text-xs text-foreground bg-background"
-          style={{ width: 140 }}
-        />
-      </div>
-      {/* Sidebar */}
-      {showSidebar && (
-        <div className="w-64 border-r border-border/30 bg-card/50 backdrop-blur-sm p-4 flex flex-col overflow-hidden">
-          <Link href="/" className="flex items-center gap-2 font-bold text-lg text-neon mb-8">
-            <span className="text-xl">🚀</span>
-            <span>Galactic Gateway</span>
-          </Link>
-
-          <div className="space-y-2 mb-6">
-            <Button
-              variant="outline"
-              className="w-full justify-start border-border/50 text-left bg-transparent"
-              onClick={() => {
-                setSessionId(`session-${Date.now()}`);
-                setMessages([
-                  {
-                    role: 'assistant',
-                    text: 'Welcome to a new conversation! What would you like to shop for today?'
-                  },
-                ]);
-              }}
-            >
-              + New Chat
-            </Button>
-          </div>
-
-          <div className="flex-1 space-y-2 mb-6 overflow-y-auto">
-            <p className="text-xs font-semibold text-muted-foreground px-2">Recent Conversations</p>
-            {['Find space suits', 'Helmet recommendations', 'Budget shopping'].map((chat, i) => (
-              <button
-                key={i}
-                className="w-full text-left px-3 py-2 rounded hover:bg-primary/10 text-sm transition text-muted-foreground hover:text-foreground"
-              >
-                {chat}
-              </button>
-            ))}
-          </div>
-
-          <div className="border-t border-border/30 pt-4 space-y-2">
-            <Button variant="ghost" size="sm" className="w-full justify-start gap-2">
-              <Settings className="w-4 h-4" />
-              Settings
-            </Button>
-            <Button variant="ghost" size="sm" className="w-full justify-start gap-2" asChild>
-              <Link href="/wallet">
-                <ShoppingBag className="w-4 h-4" />
-                Wallet
-              </Link>
-            </Button>
-          </div>
-        </div>
-      )}
+      {/* User/session input removed as requested */}
+      {/* Sidebar removed as requested */}
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">

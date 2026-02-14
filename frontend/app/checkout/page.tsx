@@ -47,7 +47,7 @@ export default function CheckoutPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <Link href="/" className="inline-flex items-center gap-2 font-bold text-xl text-neon">
             <span className="text-2xl">🚀</span>
-            <span>Galactic Gateway</span>
+            <span>Cart Blanche</span>
           </Link>
         </div>
       </nav>
