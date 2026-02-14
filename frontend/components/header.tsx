@@ -15,46 +15,43 @@ export default function Header() {
       // Check if window.ethereum is available
       if (typeof window !== 'undefined' && window.ethereum) {
         const requiredChainId = '0x135A9D92'; // 324705682 in hex (SKALE Base Sepolia)
-        const currentChainId = await window.ethereum.request({ method: 'eth_chainId' });
-        
-        if (currentChainId !== requiredChainId) {
-          try {
-            await window.ethereum.request({
-              method: 'wallet_switchEthereumChain',
-              params: [{ chainId: requiredChainId }],
-            });
-          } catch (switchError: any) {
-            // If the chain has not been added to MetaMask, try to add it (Error code 4902)
-            if (switchError.code === 4902) {
-              try {
-                await window.ethereum.request({
-                  method: 'wallet_addEthereumChain',
-                  params: [
-                    {
-                      chainId: requiredChainId,
-                      chainName: 'SKALE Base Sepolia Testnet',
-                            rpcUrls: ['https://base-sepolia-testnet.skalenodes.com/v1/jubilant-horrible-ancha/'],
-                      nativeCurrency: {
-                        name: 'SKALE Credits',
-                        symbol: 'CREDIT',
-                        decimals: 18,
-                      },
-                      blockExplorerUrls: ['https://base-sepolia-testnet-explorer.skalenodes.com'],
+        // Always attempt to switch to the required chain before connecting
+        try {
+          await window.ethereum.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: requiredChainId }],
+          });
+        } catch (switchError: any) {
+          // If the chain has not been added to MetaMask, try to add it (Error code 4902)
+          if (switchError.code === 4902) {
+            try {
+              await window.ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [
+                  {
+                    chainId: requiredChainId,
+                    chainName: 'SKALE Base Sepolia Testnet',
+                    rpcUrls: ['https://base-sepolia-testnet.skalenodes.com/v1/jubilant-horrible-ancha/'],
+                    nativeCurrency: {
+                      name: 'SKALE Credits',
+                      symbol: 'CREDIT',
+                      decimals: 18,
                     },
-                  ],
-                });
-              } catch (addError) {
-                console.error('Failed to add SKALE chain:', addError);
-                return;
-              }
-            } else {
-              console.error('Failed to switch chain:', switchError);
+                    blockExplorerUrls: ['https://base-sepolia-testnet-explorer.skalenodes.com'],
+                  },
+                ],
+              });
+            } catch (addError) {
+              console.error('Failed to add SKALE chain:', addError);
               return;
             }
+          } else {
+            console.error('Failed to switch chain:', switchError);
+            return;
           }
         }
       }
-      // Finally, request account connection
+      // Now request account connection
       await connect();
     } catch (error) {
       console.error("Failed to connect wallet:", error);
