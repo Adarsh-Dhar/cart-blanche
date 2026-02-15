@@ -9,26 +9,30 @@ from eth_account.messages import encode_typed_data
 from shopping_concierge.x402_settlement_tool import X402SettlementTool
 
 # 1. Create a dummy "User" wallet to sign the mandate
-# (This is just a random throwaway key used solely for generating a valid signature)
 dummy_user_key = "0x" + "1" * 64
 user_account = Account.from_key(dummy_user_key)
 
-# 2. Build the exact Batch CartMandate payload your frontend generates
+# 2. Build a realistic multi-item Batch CartMandate
 cart_mandate = {
     "chain_id": 324705682,
     "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9",
-    "amount": 250, # $250 total project cost
+    "amount": 85, # Total cost
     "currency": "USDC",
     "merchants": [
         {
-            "name": "Test Vendor 1 (Backpack)",
-            "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9",
-            "amount": 50
+            "name": "Nike Backpack",
+            "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9", # Tool will ignore this and pick randomly
+            "amount": 45
         },
         {
-            "name": "Test Vendor 2 (Shoes)",
+            "name": "OfficeDepot Stationery",
             "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9",
-            "amount": 200
+            "amount": 25
+        },
+        {
+            "name": "Puma Socks",
+            "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9",
+            "amount": 15
         }
     ]
 }
@@ -74,21 +78,18 @@ payment_mandate = {
 }
 
 async def run_test():
-    # Make sure we have the Agent's private key to pay the gas/funds!
     if not os.environ.get("SKALE_AGENT_PRIVATE_KEY"):
         print("❌ ERROR: SKALE_AGENT_PRIVATE_KEY is missing from your environment!")
-        print("Run: export SKALE_AGENT_PRIVATE_KEY='your_key_here' first.")
         return
 
     tool = X402SettlementTool()
     
-    print("🚀 Firing X402 Settlement Tool (Real SKALE TX)...\n")
+    print("🚀 Firing X402 Settlement Tool (Real SKALE Multi-TX)...\n")
     try:
-        # Run the tool asynchronously (we pass None for context since the tool doesn't use it)
         result = await tool.run_async(args={"payment_mandate": payment_mandate}, tool_context=None)
         
         print("\n========================================")
-        print("✅ SETTLEMENT SUCCESSFUL!")
+        print("✅ MULTI-SETTLEMENT SUCCESSFUL!")
         print("========================================")
         print(json.dumps(result, indent=2))
         
@@ -97,8 +98,6 @@ async def run_test():
         print(e)
 
 if __name__ == "__main__":
-    # Ensure the script runs in the correct directory context
     from dotenv import load_dotenv
-    load_dotenv() # Loads the .env file containing your SKALE agent key
-    
+    load_dotenv() 
     asyncio.run(run_test())

@@ -44,39 +44,21 @@
     const cleanMessageContent = (content: string) => {
       if (!content) return "";
       let cleaned = content.replace(/For context:\[.*?\] said:\s*/g, '');
-      cleaned = cleaned.replace(/```(?:json)?\s*\{[\s\S]*?\}\s*```/g, '');
-      cleaned = cleaned.replace(/Here is my signature for the CartMandate:\s*0x[a-fA-F0-9]+/gi, '');
-      cleaned = cleaned.replace(/0x[a-fA-F0-9]{130,}/g, '');
-      return cleaned.trim();
+      return cleaned;
     };
 
-    const sendMessage = async (e?: React.FormEvent | React.KeyboardEvent, overrideText?: string) => {
+    // Main message sending and streaming handler
+    async function sendMessage(e?: React.FormEvent | React.KeyboardEvent, overrideText?: string) {
       if (e) e.preventDefault();
-    
-      const userText = overrideText || input;
-      if (!userText.trim()) return;
-
-      // Only add to UI if it's NOT an automated background signature message
-      if (!overrideText) {
-        setMessages((prev) => [...prev, { role: 'user', text: userText }]);
-        setInput(""); 
-      }
-    
+      const userText = overrideText !== undefined ? overrideText : input.trim();
+      if (!userText) return;
       setIsLoading(true);
-
+      setMessages((prev) => [...prev, { role: 'user', text: userText }]);
+      setInput("");
       try {
-        await fetch(`http://127.0.0.1:8000/apps/shopping_concierge/users/${userId}/sessions/${sessionId}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
-        }).catch(err => console.warn("Session might already exist:", err));
-
-        const response = await fetch('http://127.0.0.1:8000/run_sse', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Accept': 'text/event-stream'
-          },
+        const response = await fetch("/api/agent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             app_name: 'shopping_concierge',
             user_id: userId,
@@ -112,14 +94,11 @@
                 const eventData = JSON.parse(dataStr);
                 if (eventData?.content?.parts?.[0]?.text) {
                   currentAgentMessage += eventData.content.parts[0].text;
-                
                   let displayText = currentAgentMessage;
                   const stopIndex = displayText.indexOf('```json');
                   const stopIndexText = displayText.indexOf('Please sign the EIP-712');
-                
                   if (stopIndex !== -1) displayText = displayText.substring(0, stopIndex).trim();
                   else if (stopIndexText !== -1) displayText = displayText.substring(0, stopIndexText).trim();
-
                   setMessages((prev) => {
                     const newArray = [...prev];
                     newArray[newArray.length - 1].text = displayText;
@@ -152,8 +131,6 @@
            if (!extractedAddress || !extractedAddress.startsWith('0x')) {
               extractedAddress = "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9";
            }
-           // 🚨 THE FIX: Catch the new batch budget keys
-           // 🚨 THE FIX: Catch the new batch budget keys so MetaMask gets the correct total sum!
            let extractedAmount = rawMsg.amount || rawMsg.total_budget_amount || rawMsg.total_budget || rawMsg.total_usd || 0;
            if (typeof extractedAmount === 'string') {
               extractedAmount = parseInt(extractedAmount.replace(/[^0-9]/g, '')) || 0;
@@ -187,16 +164,13 @@
             try {
               setMessages((prev) => [...prev, { role: 'assistant', text: 'Prompting MetaMask for secure signature approval...' }]);
               const signature = await signMandate(mandatePayload);
-            
-              // 🚨 THE FIX: Let the stream handle the receipt, do not hardcode a fake success UI here
+              // Let the stream handle the receipt, do not hardcode a fake success UI here
               await sendMessage(undefined, `Here is my signature for the CartMandate: ${signature}`);
-            
               toast({
                 title: "🎉 Transaction Sent!",
                 description: "Verifying your signature and settling on SKALE.",
                 duration: 5000,
               });
-            
             } catch (err: any) {
               console.error(err);
               setMessages((prev) => [...prev, { role: 'assistant', text: `❌ Payment signature was cancelled.` }]);
@@ -210,7 +184,7 @@
       } finally {
         setIsLoading(false);
       }
-    };
+    }
 
     return (
       <div className="min-h-screen bg-background flex">
@@ -218,6 +192,7 @@
           {/* Header */}
           <div className="border-b border-border/30 bg-background/80 backdrop-blur-sm p-4 flex items-center justify-between">
             <div className="flex items-center gap-4">
+// ...existing code...
               <button onClick={() => setShowSidebar(!showSidebar)} className="lg:hidden p-2 hover:bg-card rounded transition">
                 <Menu className="w-5 h-5" />
               </button>
@@ -251,15 +226,11 @@
               // Skip rendering completely empty agent bubbles
               if (message.role === 'assistant' && !cleanedText) return null;
 
-              // 🚨 AP2 TRACK RECEIPT UI 🚨
+              // 🚨 AP2 TRACK MULTI-MERCHANT RECEIPT UI 🚨
               if (message.role === 'assistant' && cleanedText.includes('Payment Complete!')) {
-                // Reliably extract the Tx Hash from the markdown link generated by the backend
-                const txHashMatch = cleanedText.match(/0x[a-fA-F0-9]{64}/) || cleanedText.match(/TX Hash:\s*(?:\[)?(0x[a-zA-Z0-9]+)/i);
-                const txHash = txHashMatch ? (txHashMatch[1] || txHashMatch[0]) : "0xABC123...";
-              
                 return (
                   <div key={idx} className="flex justify-start my-4 w-full">
-                    <div className="bg-gradient-to-br from-green-950/40 to-emerald-900/20 border border-green-500/50 rounded-2xl p-5 shadow-[0_0_15px_rgba(34,197,94,0.15)] max-w-md w-full">
+                    <div className="bg-gradient-to-br from-green-950/40 to-emerald-900/20 border border-green-500/50 rounded-2xl p-5 shadow-[0_0_15px_rgba(34,197,94,0.15)] max-w-2xl w-full">
                       <div className="flex items-center gap-3 mb-4">
                         <div className="bg-green-500/20 p-2 rounded-full border border-green-500/30">
                           <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
@@ -269,17 +240,19 @@
                       <div className="mb-4 inline-block bg-green-500/10 border border-green-500/20 text-green-300 text-xs px-2 py-1 rounded">
                          x402 Multi-Vendor Escrow Triggered
                       </div>
-                      <div className="space-y-3 text-sm bg-black/20 p-3 rounded-lg border border-white/5">
-                        <div className="flex justify-between border-b border-green-500/20 pb-2">
-                          <span className="text-muted-foreground">Network</span>
-                          <span className="font-mono text-white">SKALE Base Sepolia</span>
-                        </div>
-                        <div className="flex flex-col gap-1 pt-1">
-                          <span className="text-muted-foreground">Transaction Hash</span>
-                          <a href={`https://base-sepolia-testnet-explorer.skalenodes.com/tx/${txHash}`} target="_blank" className="font-mono text-xs text-blue-400 truncate hover:underline bg-blue-500/10 p-1.5 rounded">
-                            {txHash}
-                          </a>
-                        </div>
+                      <div className="space-y-2 text-sm bg-black/20 p-4 rounded-lg border border-white/5 text-gray-200">
+                        <ReactMarkdown 
+                          components={{
+                            ul: ({node, ...props}) => <ul className="list-none space-y-3 m-0 p-0" {...props} />,
+                            li: ({node, ...props}) => <li className="bg-black/20 border border-green-500/20 p-3 rounded-lg flex flex-col gap-1 break-all" {...props} />, 
+                            strong: ({node, ...props}) => <strong className="text-green-300 font-semibold text-base" {...props} />, 
+                            a: ({node, ...props}) => <a className="text-blue-400 hover:text-blue-300 hover:underline text-xs mt-1" target="_blank" {...props} />, 
+                            code: ({node, ...props}) => <code className="bg-black/40 px-1.5 py-0.5 rounded font-mono text-xs text-gray-300" {...props} />, 
+                            p: ({node, ...props}) => <p className="mb-2 last:mb-0" {...props} />
+                          }}
+                        >
+                          {cleanedText.replace('✅ **Payment Complete!**', '').trim()}
+                        </ReactMarkdown>
                       </div>
                     </div>
                   </div>

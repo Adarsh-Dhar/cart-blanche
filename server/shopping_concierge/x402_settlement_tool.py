@@ -2,6 +2,7 @@ from google.adk.tools.base_tool import BaseTool, ToolContext
 from typing import Any
 import json
 import os
+import random  # 🚨 Added random for the wallet selection
 
 class X402SettlementTool(BaseTool):
     def __init__(self):
@@ -29,7 +30,7 @@ class X402SettlementTool(BaseTool):
         if not signature or not cart_mandate:
             raise Exception("Missing signature or cart_mandate for verification")
 
-        # EIP-712 Domain and Types (must match frontend)
+        # EIP-712 Domain and Types
         domain = {
             "name": "CartBlanche",
             "version": "1",
@@ -57,7 +58,6 @@ class X402SettlementTool(BaseTool):
             ],
         }
 
-        # Prepare signable bytes for EIP-712
         signable_bytes = encode_typed_data(
             domain_data=domain,
             message_types={"CartMandate": types["CartMandate"]},
@@ -75,34 +75,46 @@ class X402SettlementTool(BaseTool):
         if not merchants:
             raise Exception("No merchants found in the batch mandate!")
 
-        # 🚨 FIX 1: Define the agent_address and private_key here 🚨
         private_key = os.environ.get("SKALE_AGENT_PRIVATE_KEY")
         if not private_key:
             raise Exception("Missing SKALE_AGENT_PRIVATE_KEY in .env")
         agent_account = w3.eth.account.from_key(private_key)
         agent_address = agent_account.address
 
-        print(f"[X402_TOOL] Starting BATCH SETTLEMENT for {len(merchants)} merchants...")
+        # 🚨 THE 10 PREDEFINED MERCHANT WALLETS 🚨
+        MERCHANT_WALLETS = [
+            "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9", "0x90C768dDfeA2352511FeEE464BED8b550994d3eB",
+            "0xAE0F008660E94CB67203C2Eac3660C4e0Aff6948", "0x684487A840a8784cC49668bca724803178AE71B5",
+            "0x6A1a7a53C63A83fF9D5E3a0463BFE952f10a8a97", "0x3209a1520e5d301d7d5E8883B30b1b7Fa53ebb29",
+            "0xEa4d474Dec3dD282D018926064AD642c451961ba", "0x9834F7C798eb0F5A2A6a2aD4b6c6B282566273A3",
+            "0xEb18f156d7EC875997729D3CE294848B99A4a35c", "0x32F3CA68C03fa4AA317ec1730012ccF69187Ba23"
+        ]
+
+        print(f"[X402_TOOL] Starting MULTI-TX BATCH SETTLEMENT for {len(merchants)} merchants...")
         tx_hashes = []
+        receipts = []
 
         # Loop through the list of merchants and pay them all
         for vendor in merchants:
-            raw_vendor_address = vendor.get("merchant_address", "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9")
+            # 🚨 ASSIGN RANDOM WALLET 🚨
+            vendor_address = w3.to_checksum_address(random.choice(MERCHANT_WALLETS))
             
-            # 🚨 FIX 2: Protect against LLM hallucinating bad hex strings like 0xJan5p... 🚨
-            try:
-                vendor_address = w3.to_checksum_address(raw_vendor_address)
-            except ValueError:
-                print(f"[X402_TOOL] ⚠️ Invalid address {raw_vendor_address}, falling back to default escrow.")
-                vendor_address = "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9"
+            # 🚨 DIVIDE AMOUNT BY 10,000 🚨
+            raw_amount = float(vendor.get("amount", 0))
+            actual_value_to_send = raw_amount / 10000.0
 
-            print(f"[X402_TOOL] Paying {vendor.get('name', 'Vendor')} at {vendor_address}...")
+            # Ensure we send at least a tiny micro-transaction if math fails
+            if actual_value_to_send <= 0:
+                actual_value_to_send = 0.0001 
+
+            commodity_name = vendor.get('name', 'Unknown Item')
+            print(f"[X402_TOOL] Paying {commodity_name} at {vendor_address} ({actual_value_to_send} CREDIT)...")
 
             # Build the transaction for this specific vendor
             tx = {
                 'nonce': w3.eth.get_transaction_count(agent_address),
                 'to': vendor_address,
-                'value': w3.to_wei(0.0001, 'ether'), # Proof of settlement
+                'value': w3.to_wei(actual_value_to_send, 'ether'),
                 'gas': 2000000,
                 'gasPrice': w3.eth.gas_price,
                 'chainId': 324705682 
@@ -118,9 +130,17 @@ class X402SettlementTool(BaseTool):
             tx_hashes.append(tx_hash)
             print(f"[X402_TOOL] ✅ Paid! TX: {tx_hash}")
 
+            # 🚨 RECORD RECEIPT FOR THE FRONTEND 🚨
+            receipts.append({
+                "commodity": commodity_name,
+                "wallet": vendor_address,
+                "amount": actual_value_to_send,
+                "tx_hash": tx_hash
+            })
+
         return {
             "status": "settled",
-            "tx_id": tx_hashes[0] if tx_hashes else "0x", 
+            "receipts": receipts,  # Returning the receipts array so UI shows each vendor!
             "network": "SKALE Base Sepolia Testnet",
             "details": f"Successfully batch-settled {len(merchants)} vendors."
         }

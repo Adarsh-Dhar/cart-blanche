@@ -165,35 +165,34 @@ class ForceToolPaymentProcessor(LlmAgent):
 
             try:
                 print("[PAYMENT_PROCESSOR] Calling x402_settlement tool directly...")
-                from google.adk.tools.base_tool import ToolContext
-                tool_context = ToolContext(context)
-                
                 result = await self._settlement_tool.run_async(
-                    args={"payment_mandate": combined_payload}, 
-                    tool_context=tool_context
+                    args={"payment_mandate": combined_payload},
+                    tool_context=None
                 )
                 print(f"[PAYMENT_PROCESSOR] ✅ Tool returned: {result}")
-                
-                if result.get("status") == "settled":
-                    tx_id = result.get("tx_id", "Unknown")
-                    response_text = f"✅ **Payment Complete!** \n\nYour transaction has been securely settled on the SKALE network.\n\n* **TX Hash:** [{tx_id[:10]}...](https://base-sepolia-testnet-explorer.skalenodes.com/tx/{tx_id})\n* **Network:** {result.get('network', 'SKALE Base Sepolia')}"
+                # 🚨 Formats the multi-merchant data into a Markdown string for the frontend
+                receipts = result.get("receipts", [])
+                if receipts:
+                    markdown_list = ""
+                    for r in receipts:
+                        markdown_list += f"- **{r['commodity']}**\n  Wallet: `{r['wallet']}`\n  Amount: `{r['amount']} CREDIT` [(View TX)](https://base-sepolia-testnet-explorer.skalenodes.com/tx/{r['tx_hash']})\n"
+                    msg = f"✅ **Payment Complete!**\n\nYour transactions have been securely settled on the SKALE network.\n\n{markdown_list}"
+                    yield self._create_message_event(msg)
+                    return
                 else:
                     response_text = f"❌ Payment Failed: {result.get('reason', 'Unknown error')}"
-                
-                context.session.state["settlement_receipt"] = result
-                
-                from google.adk.events import Event
-                response_content = Content(role="model", parts=[Part(text=response_text)])
-                yield Event(
-                    invocation_id=context.invocation_id,
-                    author=self.name,
-                    content=response_content
-                )
+                    context.session.state["settlement_receipt"] = result
+                    from google.adk.events import Event
+                    response_content = Content(role="model", parts=[Part(text=response_text)])
+                    yield Event(
+                        invocation_id=context.invocation_id,
+                        author=self.name,
+                        content=response_content
+                    )
             except Exception as e:
                 print(f"[PAYMENT_PROCESSOR] ❌ ERROR calling tool: {e}")
                 import traceback
                 traceback.print_exc()
-                
                 from google.adk.events import Event
                 error_content = Content(role="model", parts=[Part(text=f"❌ Payment processor error: {e}")])
                 yield Event(
