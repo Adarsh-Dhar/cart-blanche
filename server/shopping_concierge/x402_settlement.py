@@ -177,7 +177,15 @@ class ForceToolPaymentProcessor(LlmAgent):
                     for r in receipts:
                         markdown_list += f"- **{r['commodity']}**\n  Wallet: `{r['wallet']}`\n  Amount: `{r['amount']} CREDIT` [(View TX)](https://base-sepolia-testnet-explorer.skalenodes.com/tx/{r['tx_hash']})\n"
                     msg = f"✅ **Payment Complete!**\n\nYour transactions have been securely settled on the SKALE network.\n\n{markdown_list}"
-                    yield self._create_message_event(msg)
+                    from google.adk.events import Event
+                    from google.genai.types import Content, Part
+
+                    success_content = Content(role="model", parts=[Part(text=msg)])
+                    yield Event(
+                        invocation_id=context.invocation_id,
+                        author=self.name,
+                        content=success_content
+                    )
                     return
                 else:
                     response_text = f"❌ Payment Failed: {result.get('reason', 'Unknown error')}"

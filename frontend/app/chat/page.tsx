@@ -56,17 +56,17 @@
       setMessages((prev) => [...prev, { role: 'user', text: userText }]);
       setInput("");
       try {
-        const response = await fetch("/api/agent", {
+        const response = await fetch("http://127.0.0.1:8000/run_sse", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream"
+          },
           body: JSON.stringify({
-            app_name: 'shopping_concierge',
+            app_name: "shopping_concierge",
             user_id: userId,
             session_id: sessionId,
-            new_message: {
-              role: 'user',
-              parts: [{ text: userText }],
-            },
+            new_message: { role: "user", parts: [{ text: userText }] }
           }),
         });
 
