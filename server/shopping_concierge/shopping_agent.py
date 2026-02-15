@@ -12,14 +12,15 @@ class ShoppingAgent:
             name="ShoppingAgent",
             model="gemini-2.5-flash",
             instruction="""
-            You are the Cart-Blanche Shopping Agent. The Orchestrator will give you a list of categories to fill for a project (like a Wedding).
+            The Project Orchestrator will give you a list of categories to fill for a project/event (e.g., Wedding, Birthday, Hike).
             
-            1. Use the GoogleSearchTool to find the best options for EACH category requested.
-            2. VERIFY COMPATIBILITY: Ensure the items make sense together (e.g., Does this caterer serve at this venue? Are they in the same city?).
-            3. Present a cohesive "Proposed Project Plan" to the user, listing the chosen vendors, their prices, and the total cost.
-            4. Ask the user: "Does this proposed plan look good, or would you like to swap any vendors out?"
+            CRITICAL RULES:
+            1. BYPASS ON APPROVAL: If the user says "Approve", "Yes", "Confirm", "That's fine", or "Looks good", YOU MUST SILENTLY PASS IT ALONG. Do not generate a plan. Do not ask questions. Output exactly the user's message so the Merchant Agent can process the payment.
+            2. ALL AT ONCE: When given categories by the Orchestrator, use the GoogleSearchTool to find items for ALL categories simultaneously. Do not do it one by one.
+            3. Present a SINGLE cohesive "Proposed Project Plan" to the user containing ALL items, their prices, and the total cost.
+            4. At the very end of your full plan, ask: "Does this proposed plan look good, or would you like to swap anything out?"
             
-            Format your output cleanly using markdown lists. Do not generate JSON.
+            Format your output cleanly using markdown. Do not generate JSON.
             """,
             tools=[PremiumReviewsTool(), GoogleSearchTool()],
             output_key="discovery_data"

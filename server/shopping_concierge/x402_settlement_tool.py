@@ -41,9 +41,11 @@ class X402SettlementTool(BaseTool):
             "verifyingContract": "0x0000000000000000000000000000000000000000"
         }
         message = {
-            "merchant_address": cart_mandate.get("merchant_address"),
-            "amount": cart_mandate.get("amount"),
-            "currency": cart_mandate.get("currency")
+            # 🚨 THE FIX: Map the batch "total_budget" to the EIP-712 "amount", 
+            # and provide the same fallback address the frontend uses!
+            "merchant_address": cart_mandate.get("merchant_address", "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9"),
+            "amount": cart_mandate.get("amount") or cart_mandate.get("total_budget") or 0,
+            "currency": cart_mandate.get("currency", "USDC")
         }
         types = {
             "EIP712Domain": [
@@ -85,8 +87,14 @@ class X402SettlementTool(BaseTool):
         if not merchants:
             raise Exception("No merchants found in the batch mandate!")
 
-        print(f"[X402_TOOL] Starting BATCH SETTLEMENT for {len(merchants)} merchants...")
-        tx_hashes = []
+            # 🚨 THE FIX: Load the Agent's Wallet Key and Address 🚨
+            private_key = os.environ.get("SKALE_AGENT_PRIVATE_KEY")
+            if not private_key:
+                raise Exception("Missing SKALE_AGENT_PRIVATE_KEY in .env")
+            agent_address = w3.eth.account.from_key(private_key).address
+
+            print(f"[X402_TOOL] Starting BATCH SETTLEMENT for {len(merchants)} merchants...")
+            tx_hashes = []
 
         # Loop through the list of merchants and pay them all
         for vendor in merchants:
