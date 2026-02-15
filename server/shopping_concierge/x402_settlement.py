@@ -112,6 +112,7 @@ class ForceToolPaymentProcessor(LlmAgent):
                                             cart_mandate = {
                                                 "total_budget": payload.get("total_budget_amount"),
                                                 "currency": payload.get("currency", "USDC"),
+                                                "chain_id": payload.get("chain_id", 324705682), # 🚨 ADD THIS LINE!
                                                 "merchants": payload["merchants"]
                                             }
                                         # Handle if wrapped

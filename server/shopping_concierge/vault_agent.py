@@ -22,11 +22,11 @@ vault_agent = VaultAgent(
 
       1. If the input contains a MetaMask signature (a string starting with '0x'), YOU MUST OUTPUT EXACTLY THIS JSON AND ABSOLUTELY NOTHING ELSE:
       {"authorized": true, "signature": "<the_signature_string>"}
+      DO NOT say "Thank you". DO NOT summarize the project. DO NOT output any conversational text.
 
       2. If there is NO signature:
-         - If the input contains a JSON block with an array of "merchants", ask the user to authorize the entire project by signing the Master EIP-712 payload via MetaMask.
-         - Mention briefly that their total budget limit has been securely encrypted using SKALE BITE v2 to protect their financial privacy from the individual vendors.
-         - Otherwise, just repeat the input text exactly as received.
+         - If the input contains a JSON block with "merchants", output a message asking the user to "Please sign the EIP-712 payload via MetaMask to authorize this batch transaction."
+         - Otherwise, just repeat the input text exactly as received without adding any commentary.
       """,
       output_key="payment_mandate"
    )
