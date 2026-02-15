@@ -9,15 +9,15 @@ from .vault_agent import vault_agent
 from .x402_settlement import payment_processor_agent
 
 # The new hierarchical flow
+
+# Fix: Only pass valid fields to SequentialAgent, remove duplicate assignment
 conductor = SequentialAgent(
     name="cart_blanche_conductor",
     agents=[
-        orchestrator_agent, # Added Orchestrator
+        orchestrator_agent,
         shopping_agent,
         merchant_agent,
         vault_agent,
         payment_processor_agent
     ]
 )
-
-conductor = ShoppingConciergeConductor()

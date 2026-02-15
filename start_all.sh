@@ -48,7 +48,12 @@ PAYMENT_PID=$!
 # Start frontend (Next.js) on port 3000
 echo "Starting frontend (Next.js) on port $FRONTEND_PORT..."
 cd frontend || exit 1
-pnpm dev &
+# Check if pnpm is installed
+if ! command -v pnpm >/dev/null 2>&1; then
+	echo "pnpm not found. Installing pnpm globally..."
+	npm install -g pnpm || { echo "Failed to install pnpm. Exiting."; exit 1; }
+fi
+pnpm run dev &
 FRONTEND_PID=$!
 cd ..
 

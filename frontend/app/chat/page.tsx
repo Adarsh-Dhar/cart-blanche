@@ -22,7 +22,7 @@
     const [messages, setMessages] = useState<Message[]>([
       {
         role: 'assistant',
-        text: "Welcome to Cart Blanche AI Shopping Concierge! I'm here to help you find the perfect space-themed items. What are you looking for today?",
+        text: "Welcome to Cart Blanche! I am your AI Project Orchestrator. Whether you are outfitting your first day of school, planning a wedding, or organizing a hiking trip, tell me your goal and budget, and I will handle the rest.",
       },
     ]);
     const [input, setInput] = useState("");
@@ -152,7 +152,9 @@
            if (!extractedAddress || !extractedAddress.startsWith('0x')) {
               extractedAddress = "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9";
            }
-           let extractedAmount = rawMsg.amount || rawMsg.total_usd || 0;
+           // 🚨 THE FIX: Catch the new batch budget keys
+           // 🚨 THE FIX: Catch the new batch budget keys so MetaMask gets the correct total sum!
+           let extractedAmount = rawMsg.amount || rawMsg.total_budget_amount || rawMsg.total_budget || rawMsg.total_usd || 0;
            if (typeof extractedAmount === 'string') {
               extractedAmount = parseInt(extractedAmount.replace(/[^0-9]/g, '')) || 0;
            }
@@ -262,9 +264,11 @@
                         <div className="bg-green-500/20 p-2 rounded-full border border-green-500/30">
                           <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
                         </div>
-                        <h3 className="text-green-400 font-bold text-lg">Settlement Verified</h3>
+                        <h3 className="text-green-400 font-bold text-lg">Batch Settlement Verified</h3>
                       </div>
-                    
+                      <div className="mb-4 inline-block bg-green-500/10 border border-green-500/20 text-green-300 text-xs px-2 py-1 rounded">
+                         x402 Multi-Vendor Escrow Triggered
+                      </div>
                       <div className="space-y-3 text-sm bg-black/20 p-3 rounded-lg border border-white/5">
                         <div className="flex justify-between border-b border-green-500/20 pb-2">
                           <span className="text-muted-foreground">Network</span>
