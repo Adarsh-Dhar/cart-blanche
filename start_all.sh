@@ -31,9 +31,13 @@ if [ -f .env ]; then
 	. ./.env
 	set +a
 fi
+
+# Ensure correct Python venv and npm global bin are in PATH
+export PATH="$PATH:$(npm bin -g)"
+
 # Start backend (FastAPI/ADK) on port 8000
 echo "Starting backend (server_entry.py) on port $BACKEND_PORT..."
-uvicorn server.server_entry:app --host 0.0.0.0 --port $BACKEND_PORT --reload &
+/Users/adarsh/Documents/cart-blanche/.venv/bin/uvicorn server.server_entry:app --host 0.0.0.0 --port $BACKEND_PORT --reload &
 BACKEND_PID=$!
 
 # Start payment server (payment_server.py) on port 8001

@@ -107,8 +107,15 @@ class ForceToolPaymentProcessor(LlmAgent):
                                 for match in reversed(json_matches): 
                                     try:
                                         payload = json.loads(match)
+                                        # Handle the new Batch structure
+                                        if "merchants" in payload and isinstance(payload["merchants"], list):
+                                            cart_mandate = {
+                                                "total_budget": payload.get("total_budget_amount"),
+                                                "currency": payload.get("currency", "USDC"),
+                                                "merchants": payload["merchants"]
+                                            }
                                         # Handle if wrapped
-                                        if "cart_mandate" in payload:
+                                        elif "cart_mandate" in payload:
                                             cart_mandate = payload["cart_mandate"]
                                         # Handle if wrapped in message
                                         elif "message" in payload and isinstance(payload["message"], dict):

@@ -78,40 +78,44 @@ class X402SettlementTool(BaseTool):
         else:
             print("[X402_TOOL] No expected wallet provided, using recovered signer as authenticated user.")
 
-        try:
-            # 2. Load the Agent's Private Key
-            private_key = os.environ.get("SKALE_AGENT_PRIVATE_KEY")
-            if not private_key:
-                raise Exception("Missing SKALE_AGENT_PRIVATE_KEY in .env")
-            account = w3.eth.account.from_key(private_key)
-            agent_address = account.address
-            print(f"[X402_TOOL] Executing real on-chain SKALE transfer from Agent: {agent_address}...")
-            # 3. Build the transaction (Sending a micro-transaction of native SKALE token as proof of settlement)
+
+        # ... after verifying the signature ...
+        cart_mandate = payment_mandate.get("cart_mandate", {})
+        merchants = cart_mandate.get("merchants", [])
+        if not merchants:
+            raise Exception("No merchants found in the batch mandate!")
+
+        print(f"[X402_TOOL] Starting BATCH SETTLEMENT for {len(merchants)} merchants...")
+        tx_hashes = []
+
+        # Loop through the list of merchants and pay them all
+        for vendor in merchants:
+            vendor_address = vendor.get("merchant_address")
+            vendor_amount = vendor.get("amount", 0.0001) # Default to proof-of-settlement
+
+            print(f"[X402_TOOL] Paying {vendor.get('name', 'Vendor')} at {vendor_address}...")
+
+            # Build the transaction for this specific vendor
             tx = {
                 'nonce': w3.eth.get_transaction_count(agent_address),
-                'to': w3.to_checksum_address(merchant_address),
-                'value': w3.to_wei(0.0001, 'ether'), # Proof of settlement amount
+                'to': w3.to_checksum_address(vendor_address),
+                'value': w3.to_wei(0.0001, 'ether'), # Proof of settlement
                 'gas': 2000000,
                 'gasPrice': w3.eth.gas_price,
-                'chainId': 324705682 # SKALE Base Sepolia Chain ID
+                'chainId': 324705682 
             }
-            # 4. Sign and Broadcast to SKALE
+
             signed_tx = w3.eth.account.sign_transaction(tx, private_key)
-            raw_tx = getattr(signed_tx, 'rawTransaction', None) or getattr(signed_tx, 'raw_transaction', None)
-            if raw_tx is None:
-                raise Exception("SignedTransaction object has no rawTransaction or raw_transaction attribute")
-            tx_hash_bytes = w3.eth.send_raw_transaction(raw_tx)
-            actual_tx_hash = w3.to_hex(tx_hash_bytes)
-            print(f"[X402_TOOL] ⏳ Waiting for SKALE block confirmation for TX: {actual_tx_hash}")
-            w3.eth.wait_for_transaction_receipt(tx_hash_bytes, timeout=30)
-            print(f"[X402_TOOL] ✅ SKALE Transfer confirmed!")
-        except Exception as e:
-            print(f"[X402_TOOL] ⚠️ Real SKALE TX Failed: {e}")
-            actual_tx_hash = f"0xSKALE_TX_FAILED_{str(e)[:15]}"
+            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+
+            # Wait for receipt
+            receipt = w3.eth.wait_for_transaction_receipt(tx_hash, timeout=120)
+            tx_hashes.append(w3.to_hex(tx_hash))
+            print(f"[X402_TOOL] ✅ Paid! TX: {w3.to_hex(tx_hash)}")
 
         return {
             "status": "settled",
-            "tx_id": actual_tx_hash,
+            "tx_hashes": tx_hashes, # Return an array of hashes
             "network": "SKALE Base Sepolia Testnet",
-            "details": f"Signature {str(signature)[:10]}... verified and settled."
+            "details": f"Successfully batch-settled {len(merchants)} vendors."
         }
