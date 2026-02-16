@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card } from '@/components/ui/card'
-import { Send, Menu, Zap } from 'lucide-react'
+import { Send, Menu, Zap, ExternalLink } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { toast } from '@/hooks/use-toast'
 
@@ -26,6 +26,7 @@ export default function ChatPage() {
     },
   ]);
   const [input, setInput] = useState("");
+  const [lastUserText, setLastUserText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [showSidebar, setShowSidebar] = useState(true);
   const [userId] = useState("guest_user");
@@ -40,30 +41,67 @@ export default function ChatPage() {
     scrollToBottom();
   }, [messages]);
 
-  // 🚨 UI CLEANER: Removes internal agent routing and repeated signatures
+  // 🚨 UI CLEANER: Aggressively removes JSON, Signatures, Fluff, and Collapses Duplicates 🚨
   const cleanMessageContent = (content: string) => {
     if (!content) return "";
-    return content.replace(/For context:\[.*?\] said:\s*/g, '');
+
+    // 🚨 ALLOW ERRORS THROUGH IMMEDIATELY 🚨
+    if (content.includes("❌ Payment processor error:")) {
+        return content.trim(); // Do not apply any other filters to errors!
+    }
+
+    let cleaned = content.replace(/For context:\[.*?\] said:\s*/g, '');
+    
+    // Hide Orchestrator tags
+    cleaned = cleaned.replace(/<orchestrator>[\s\S]*?<\/orchestrator>/ig, '');
+    if (cleaned.includes('<orchestrator>') && !cleaned.includes('</orchestrator>')) {
+         cleaned = cleaned.replace(/<orchestrator>[\s\S]*/ig, '');
+    }
+
+    // Strip Gemini's stubborn intro lines
+    cleaned = cleaned.replace(/Here is a proposed plan.*?:/ig, '');
+    cleaned = cleaned.replace(/I will break down your request.*?:/ig, '');
+    
+    // Remove raw JSON blocks and authorized flags completely
+    cleaned = cleaned.replace(/```(?:json)?\n[\s\S]*?\n```/g, '');
+    cleaned = cleaned.replace(/\{"authorized":\s*true[\s\S]*?\}/g, '');
+    cleaned = cleaned.replace(/Here is my signature for the CartMandate: 0x[a-fA-F0-9]+/g, '');
+    cleaned = cleaned.replace(/Signature received.*?(proceed|authorized)\.?/ig, '');
+    cleaned = cleaned.replace(/The batch transaction is authorized.*?proceed\./ig, '');
+    cleaned = cleaned.replace(/Your transactions have been securely settled on the SKALE network\.?/ig, '');
+    cleaned = cleaned.replace(/✅ \*\*Payment Complete!\*\*/g, '');
+    
+    // 🚨 REGEX COLLAPSER: If the massive 100+ char list still repeats back-to-back, collapse it to 1!
+    cleaned = cleaned.replace(/([\s\S]{50,})\1+/g, '$1');
+
+    cleaned = cleaned.trim();
+    
+    if (/^(looks good|yes|approve|confirm|proceed|ok|okay|that's fine|thats fine)\.?$/i.test(cleaned)) {
+        return "";
+    }
+    
+    return cleaned;
   };
 
-  // Main message sending and streaming handler
-  async function sendMessage(e?: React.FormEvent | React.KeyboardEvent, overrideText?: string) {
+  async function sendMessage(e?: React.FormEvent | React.KeyboardEvent, overrideText?: string, hideUserMessage?: boolean) {
     if (e) e.preventDefault();
     const userText = overrideText !== undefined ? overrideText : input.trim();
     if (!userText) return;
     
     setIsLoading(true);
-    setMessages((prev) => [...prev, { role: 'user', text: userText }]);
+    setLastUserText(userText); // Save for anti-echo logic
+    
+    if (!hideUserMessage && !/^(looks good|yes|approve|confirm|proceed|ok|okay|that's fine|thats fine)\.?$/i.test(userText)) {
+      setMessages((prev) => [...prev, { role: 'user', text: userText }]);
+    }
     setInput("");
     
     try {
-      // 🚨 1. CREATE THE SESSION FIRST (Prevents the 404 Error) 🚨
       await fetch(`http://127.0.0.1:8000/apps/shopping_concierge/users/${userId}/sessions/${sessionId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" }
-      }).catch(() => {}); // Safely ignore if it already exists
+      }).catch(() => {});
 
-      // 🚨 2. SEND THE MESSAGE TO THE STREAM 🚨
       const response = await fetch("http://127.0.0.1:8000/run_sse", {
         method: "POST",
         headers: {
@@ -74,7 +112,6 @@ export default function ChatPage() {
           app_name: "shopping_concierge",
           user_id: userId,
           session_id: sessionId,
-          // 🚨 THE FIX: Use 'new_message' to satisfy Pydantic 🚨
           new_message: { role: "user", parts: [{ text: userText }] }
         }),
       });
@@ -86,8 +123,9 @@ export default function ChatPage() {
       const decoder = new TextDecoder();
       let currentAgentMessage = '';
 
-      // Create a blank bubble for the AI stream to fill
-      setMessages((prev) => [...prev, { role: 'assistant', text: '' }]);
+      if (!hideUserMessage) {
+        setMessages((prev) => [...prev, { role: 'assistant', text: '' }]);
+      }
 
       while (true) {
         const { value, done } = await reader.read();
@@ -102,21 +140,38 @@ export default function ChatPage() {
             try {
               const eventData = JSON.parse(dataStr);
               if (eventData?.content?.parts?.[0]?.text) {
-                currentAgentMessage += eventData.content.parts[0].text;
+                let textChunk = eventData.content.parts[0].text;
+                
+                // 🚨 ANTI-DUPLICATION ARMOR 🚨
+
+                // 1. If ADK echoes the user's prompt back, strip it out invisibly.
+                if (userText.length > 5 && textChunk.includes(userText)) {
+                    textChunk = textChunk.replace(userText, '');
+                }
+
+                // 2. If ADK dumps the massive full message after streaming the chunks, DROP IT.
+                // It checks if a large chunk's first 25 characters are already painted on screen.
+                if (textChunk.length > 30 && currentAgentMessage.includes(textChunk.substring(0, 25))) {
+                    continue; 
+                }
+
+                currentAgentMessage += textChunk;
+                
                 let displayText = currentAgentMessage;
                 const stopIndex = displayText.indexOf('```json');
                 const stopIndexText = displayText.indexOf('Please sign the EIP-712');
                 if (stopIndex !== -1) displayText = displayText.substring(0, stopIndex).trim();
                 else if (stopIndexText !== -1) displayText = displayText.substring(0, stopIndexText).trim();
-                setMessages((prev) => {
-                  const newArray = [...prev];
-                  newArray[newArray.length - 1].text = displayText;
-                  return newArray;
-                });
+                
+                if (!hideUserMessage) {
+                  setMessages((prev) => {
+                    const newArray = [...prev];
+                    newArray[newArray.length - 1].text = displayText;
+                    return newArray;
+                  });
+                }
               }
-            } catch (err) { 
-              // Ignore parse errors on incomplete chunks
-            }
+            } catch (err) { }
           }
         }
       }
@@ -165,7 +220,8 @@ export default function ChatPage() {
             message: {
                 merchant_address: extractedAddress,
                 amount: extractedAmount,
-                currency: rawMsg.currency || "USDC"
+                currency: rawMsg.currency || "USDC",
+                merchants: rawMsg.merchants || []
             }
          };
       }
@@ -174,15 +230,8 @@ export default function ChatPage() {
       if (mandatePayload && mandatePayload.domain) {
         setTimeout(async () => {
           try {
-            setMessages((prev) => [...prev, { role: 'assistant', text: 'Prompting MetaMask for secure signature approval...' }]);
             const signature = await signMandate(mandatePayload);
-            // Let the stream handle the receipt, do not hardcode a fake success UI here
-            await sendMessage(undefined, `Here is my signature for the CartMandate: ${signature}`);
-            toast({
-              title: "🎉 Transaction Sent!",
-              description: "Verifying your signature and settling on SKALE.",
-              duration: 5000,
-            });
+            await sendMessage(undefined, `Here is my signature for the CartMandate: ${signature}`, true);
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           } catch (err: any) {
             console.error(err);
@@ -235,71 +284,44 @@ export default function ChatPage() {
 
           {messages.map((message, idx) => {
             const cleanedText = cleanMessageContent(message.text);
-          
-            // Skip rendering completely empty agent bubbles
-            if (message.role === 'assistant' && !cleanedText) return null;
+            if (!cleanedText) return null;
 
-            // 🚨 AP2 TRACK MULTI-MERCHANT RECEIPT UI 🚨
-            if (message.role === 'assistant' && cleanedText.includes('Payment Complete!')) {
-              return (
-                <div key={idx} className="flex justify-start my-4 w-full">
-                  <div className="bg-gradient-to-br from-green-950/40 to-emerald-900/20 border border-green-500/50 rounded-2xl p-5 shadow-[0_0_15px_rgba(34,197,94,0.15)] max-w-2xl w-full">
-                    <div className="flex items-center gap-3 mb-4">
-                      <div className="bg-green-500/20 p-2 rounded-full border border-green-500/30">
-                        <svg className="w-5 h-5 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                      </div>
-                      <h3 className="text-green-400 font-bold text-lg">Batch Settlement Verified</h3>
-                    </div>
-                    <div className="mb-4 inline-block bg-green-500/10 border border-green-500/20 text-green-300 text-xs px-2 py-1 rounded">
-                       x402 Multi-Vendor Escrow Triggered
-                    </div>
-                    <div className="space-y-2 text-sm bg-black/20 p-4 rounded-lg border border-white/5 text-gray-200">
-                      <ReactMarkdown 
-                        components={{
-                          ul: ({...props}) => <ul className="list-none space-y-3 m-0 p-0" {...props} />,
-                          li: ({...props}) => <li className="bg-black/20 border border-green-500/20 p-3 rounded-lg flex flex-col gap-1 break-all" {...props} />, 
-                          strong: ({...props}) => <strong className="text-green-300 font-semibold text-base" {...props} />, 
-                          a: ({...props}) => <a className="text-blue-400 hover:text-blue-300 hover:underline text-xs mt-1" target="_blank" {...props} />, 
-                          code: ({...props}) => <code className="bg-black/40 px-1.5 py-0.5 rounded font-mono text-xs text-gray-300" {...props} />, 
-                          p: ({...props}) => <p className="mb-2 last:mb-0" {...props} />
-                        }}
-                      >
-                        {cleanedText.replace('✅ **Payment Complete!**', '').trim()}
-                      </ReactMarkdown>
-                    </div>
-                  </div>
-                </div>
-              );
-            }
-
-            // Normal Message Rendering
             return (
               <div key={idx} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-xl ${message.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-none' : 'bg-card border border-border/50 rounded-2xl rounded-tl-none w-full'} px-4 py-3`}>
+                <div className={`max-w-[85%] ${message.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-none px-4 py-3' : 'bg-transparent w-full'}`}>
                 
                   {message.role === 'user' ? (
                     <p className="text-sm whitespace-pre-wrap">{cleanedText}</p>
                   ) : (
-                    // 🚨 BEAUTIFUL MARKDOWN RENDERING 🚨
-                    <ReactMarkdown
-                      components={{
-                        ol: ({...props}) => <ol className="text-sm leading-relaxed grid grid-cols-1 gap-3 my-4 list-none p-0" {...props} />,
-                        ul: ({...props}) => <ul className="text-sm leading-relaxed grid grid-cols-1 gap-3 my-4 list-none p-0" {...props} />,
-                        li: ({...props}) => <li className="text-sm leading-relaxed bg-background/50 border border-border rounded-xl p-4 shadow-sm" {...props} />,
-                        strong: ({...props}) => <strong className="text-base font-bold text-foreground block mb-2" {...props} />,
-                        p: ({...props}) => <p className="text-sm leading-relaxed mb-3 last:mb-0" {...props} />,
-                        a: ({...props}) => (
-                          <a 
-                            className="inline-flex items-center gap-1 mt-2 text-xs font-medium text-blue-500 hover:text-blue-400 hover:underline" 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
-                            {...props} 
-                          />
-                        )
-                      }}
-                    >
-                      {cleanedText}
-                    </ReactMarkdown>
+                    <div className="w-full 
+                      [&_ol]:border [&_ol]:border-border/60 [&_ol]:bg-card [&_ol]:rounded-xl [&_ol]:overflow-hidden [&_ol]:my-4 [&_ol]:list-none [&_ol]:p-0 [&_ol]:divide-y [&_ol]:divide-border/50 [&_ol]:shadow-sm
+                      [&_ol>li]:px-4 [&_ol>li]:py-3 [&_ol>li]:transition-colors hover:[&_ol>li]:bg-muted/30
+                      [&_ol>li_p]:m-0 
+                      [&_ol>li_strong]:text-sm [&_ol>li_strong]:font-bold [&_ol>li_strong]:text-foreground [&_ol>li_strong]:block
+                      [&_ul]:flex [&_ul]:flex-wrap [&_ul]:items-center [&_ul]:gap-x-1 [&_ul]:text-xs [&_ul]:text-muted-foreground [&_ul]:list-none [&_ul]:p-0 [&_ul]:m-0 [&_ul]:mt-1.5
+                      [&_ul>li]:flex [&_ul>li]:items-center
+                      [&_ul>li:not(:first-child)]:before:content-['•'] [&_ul>li:not(:first-child)]:before:mx-2 [&_ul>li:not(:first-child)]:before:text-muted-foreground/40
+                      
+                      /* Fallback UI just in case the AI forgets to use numbers */
+                      [&>p]:text-sm [&>p]:leading-relaxed [&>p]:mb-3 [&>p]:border-b [&>p]:border-border/20 [&>p]:pb-3 last:[&>p]:border-0
+                    ">
+                      <ReactMarkdown
+                        components={{
+                          a: ({...props}) => (
+                            <a
+                              className="inline-flex items-center gap-1 ml-auto px-2.5 py-1 bg-primary/10 text-primary hover:bg-primary/20 font-medium text-[10px] rounded-md transition-colors"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              {...props}
+                            >
+                               <ExternalLink className="w-3 h-3" /> {props.children}
+                            </a>
+                          )
+                        }}
+                      >
+                        {cleanedText}
+                      </ReactMarkdown>
+                    </div>
                   )}
 
                 </div>

@@ -173,13 +173,14 @@ class ForceToolPaymentProcessor(LlmAgent):
                     tool_context=None
                 )
                 print(f"[PAYMENT_PROCESSOR] ✅ Tool returned: {result}")
-                # 🚨 Formats the multi-merchant data into a Markdown string for the frontend
                 receipts = result.get("receipts", [])
                 if receipts:
                     markdown_list = ""
                     for r in receipts:
-                        markdown_list += f"- **{r['commodity']}**\n  Wallet: `{r['wallet']}`\n  Amount: `{r['amount']} CREDIT` [(View TX)](https://base-sepolia-testnet-explorer.skalenodes.com/tx/{r['tx_hash']})\n"
-                    msg = f"✅ **Payment Complete!**\n\nYour transactions have been securely settled on the SKALE network.\n\n{markdown_list}"
+                        # This ordered list format automatically triggers your UI's Product Cards!
+                        markdown_list += f"1. **{r['commodity']}**\n   - Vendor: `{r['wallet'][:8]}...`\n   - Paid: `{r['amount']} sFUEL`\n   - [View Receipt](https://base-sepolia-testnet-explorer.skalenodes.com/tx/{r['tx_hash']})\n"
+                    msg = markdown_list.strip() # ONLY THE CARDS, NO FLUFF
+
                     from google.adk.events import Event
                     from google.genai.types import Content, Part
 
