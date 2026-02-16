@@ -262,21 +262,33 @@ export default function ChatPage() {
           {messages.map((message, idx) => {
             const cleanedText = cleanMessageContent(message.text);
 
-            // IMPROVED DETECTION: Looks for the "receipts" key used in your batch logs
+            // Robust receipt extraction: looks for JSON blocks with receipts or tx_hash
             let receipt = null;
             if (message.role === 'assistant') {
-              const jsonMatch = message.text.match(/```(?:json)?\n([\s\S]*?)\n```/);
-              if (jsonMatch && jsonMatch[1] && (jsonMatch[1].includes('tx_hash') || jsonMatch[1].includes('receipts'))) {
-                try { receipt = JSON.parse(jsonMatch[1].trim()); } catch {}
+              // Prefer JSON block
+              const jsonBlock = message.text.match(/```(?:json)?\n([\s\S]*?)\n```/);
+              if (jsonBlock && jsonBlock[1]) {
+                try {
+                  const parsed = JSON.parse(jsonBlock[1].trim());
+                  if (parsed && (parsed.receipts || parsed.tx_hash)) {
+                    receipt = parsed;
+                  }
+                } catch {}
               } else {
+                // Fallback: look for inline JSON
                 const rawJsonMatch = message.text.match(/(\{[\s\S]*?(tx_hash|receipts)[\s\S]*?\})/);
                 if (rawJsonMatch && rawJsonMatch[1]) {
-                  try { receipt = JSON.parse(rawJsonMatch[1].trim()); } catch {}
+                  try {
+                    const parsed = JSON.parse(rawJsonMatch[1].trim());
+                    if (parsed && (parsed.receipts || parsed.tx_hash)) {
+                      receipt = parsed;
+                    }
+                  } catch {}
                 }
               }
             }
 
-            // FIX: Ensure user messages aren't hidden even if cleaning returns an empty string
+            // Ensure user messages aren't hidden even if cleaning returns an empty string
             if (!cleanedText && message.role !== 'user' && !receipt) return null;
 
             return (

@@ -175,11 +175,10 @@ class ForceToolPaymentProcessor(LlmAgent):
                 print(f"[PAYMENT_PROCESSOR] ✅ Tool returned: {result}")
                 receipts = result.get("receipts", [])
                 if receipts:
-                    markdown_list = ""
-                    for r in receipts:
-                        # This ordered list format automatically triggers your UI's Product Cards!
-                        markdown_list += f"1. **{r['commodity']}**\n   - Vendor: `{r['wallet'][:8]}...`\n   - Paid: `{r['amount']} sFUEL`\n   - [View Receipt](https://base-sepolia-testnet-explorer.skalenodes.com/tx/{r['tx_hash']})\n"
-                    msg = markdown_list.strip() # ONLY THE CARDS, NO FLUFF
+                    # 1. Create a JSON block for the frontend to parse automatically
+                    receipt_json = json.dumps(result, indent=2)
+                    # 2. Format a message that includes the JSON
+                    msg = f"✅ **Payment Complete!**\n\nYour transactions have been securely settled on the SKALE network.\n\n```json\n{receipt_json}\n```"
 
                     from google.adk.events import Event
                     from google.genai.types import Content, Part
