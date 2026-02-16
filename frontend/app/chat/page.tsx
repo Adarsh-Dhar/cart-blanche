@@ -9,6 +9,7 @@ import { Card } from '@/components/ui/card'
 import { Send, Menu, Zap, ExternalLink } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import { toast } from '@/hooks/use-toast'
+import { TransactionReceipt } from '@/components/TransactionReceipt'
 
 interface Message {
   role: 'user' | 'assistant';
@@ -62,24 +63,22 @@ export default function ChatPage() {
     cleaned = cleaned.replace(/Here is a proposed plan.*?:/ig, '');
     cleaned = cleaned.replace(/I will break down your request.*?:/ig, '');
     
-    // Remove raw JSON blocks and authorized flags completely
-    cleaned = cleaned.replace(/```(?:json)?\n[\s\S]*?\n```/g, '');
+    // Remove raw JSON blocks and authorized flags, but allow JSON blocks if they contain tx_hash (receipt)
+    if (!content.includes('tx_hash')) {
+      cleaned = cleaned.replace(/```(?:json)?\n[\s\S]*?\n```/g, '');
+    }
     cleaned = cleaned.replace(/\{"authorized":\s*true[\s\S]*?\}/g, '');
     cleaned = cleaned.replace(/Here is my signature for the CartMandate: 0x[a-fA-F0-9]+/g, '');
     cleaned = cleaned.replace(/Signature received.*?(proceed|authorized)\.?/ig, '');
     cleaned = cleaned.replace(/The batch transaction is authorized.*?proceed\./ig, '');
-    cleaned = cleaned.replace(/Your transactions have been securely settled on the SKALE network\.?/ig, '');
-    cleaned = cleaned.replace(/✅ \*\*Payment Complete!\*\*/g, '');
+    // cleaned = cleaned.replace(/Your transactions have been securely settled on the SKALE network\.?/ig, '');
+    // cleaned = cleaned.replace(/✅ \*\*Payment Complete!\*\*/g, '');
     
     // 🚨 REGEX COLLAPSER: If the massive 100+ char list still repeats back-to-back, collapse it to 1!
     cleaned = cleaned.replace(/([\s\S]{50,})\1+/g, '$1');
 
     cleaned = cleaned.trim();
-    
-    if (/^(looks good|yes|approve|confirm|proceed|ok|okay|that's fine|thats fine)\.?$/i.test(cleaned)) {
-        return "";
-    }
-    
+    // (Removed filter for confirmation phrases so they are shown)
     return cleaned;
   };
 
@@ -91,7 +90,7 @@ export default function ChatPage() {
     setIsLoading(true);
     setLastUserText(userText); // Save for anti-echo logic
     
-    if (!hideUserMessage && !/^(looks good|yes|approve|confirm|proceed|ok|okay|that's fine|thats fine)\.?$/i.test(userText)) {
+    if (!hideUserMessage) {
       setMessages((prev) => [...prev, { role: 'user', text: userText }]);
     }
     setInput("");
@@ -158,10 +157,13 @@ export default function ChatPage() {
                 currentAgentMessage += textChunk;
                 
                 let displayText = currentAgentMessage;
-                const stopIndex = displayText.indexOf('```json');
-                const stopIndexText = displayText.indexOf('Please sign the EIP-712');
-                if (stopIndex !== -1) displayText = displayText.substring(0, stopIndex).trim();
-                else if (stopIndexText !== -1) displayText = displayText.substring(0, stopIndexText).trim();
+                // Only hide the mandate if we haven't reached the "Payment Complete" or "settled" stage
+                if (!displayText.includes("Payment Complete") && !displayText.includes("settled")) {
+                  const stopIndex = displayText.indexOf('```json');
+                  const stopIndexText = displayText.indexOf('Please sign the EIP-712');
+                  if (stopIndex !== -1) displayText = displayText.substring(0, stopIndex).trim();
+                  else if (stopIndexText !== -1) displayText = displayText.substring(0, stopIndexText).trim();
+                }
                 
                 if (!hideUserMessage) {
                   setMessages((prev) => {
@@ -286,12 +288,28 @@ export default function ChatPage() {
             const cleanedText = cleanMessageContent(message.text);
             if (!cleanedText) return null;
 
+            // Try to extract a JSON block with tx_hash for receipts
+            let receipt = null;
+            if (message.role === 'assistant') {
+              const jsonMatch = message.text.match(/```(?:json)?\n([\s\S]*?)\n```/);
+              if (jsonMatch && jsonMatch[1] && jsonMatch[1].includes('tx_hash')) {
+                try { receipt = JSON.parse(jsonMatch[1].trim()); } catch {}
+              } else {
+                // Try to find a raw JSON object with tx_hash
+                const rawJsonMatch = message.text.match(/(\{[\s\S]*?tx_hash[\s\S]*?\})/);
+                if (rawJsonMatch && rawJsonMatch[1]) {
+                  try { receipt = JSON.parse(rawJsonMatch[1].trim()); } catch {}
+                }
+              }
+            }
+
             return (
               <div key={idx} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div className={`max-w-[85%] ${message.role === 'user' ? 'bg-primary text-primary-foreground rounded-2xl rounded-tr-none px-4 py-3' : 'bg-transparent w-full'}`}>
-                
                   {message.role === 'user' ? (
                     <p className="text-sm whitespace-pre-wrap">{cleanedText}</p>
+                  ) : receipt ? (
+                    <TransactionReceipt receipt={receipt} />
                   ) : (
                     <div className="w-full 
                       [&_ol]:border [&_ol]:border-border/60 [&_ol]:bg-card [&_ol]:rounded-xl [&_ol]:overflow-hidden [&_ol]:my-4 [&_ol]:list-none [&_ol]:p-0 [&_ol]:divide-y [&_ol]:divide-border/50 [&_ol]:shadow-sm
@@ -323,7 +341,6 @@ export default function ChatPage() {
                       </ReactMarkdown>
                     </div>
                   )}
-
                 </div>
               </div>
             );

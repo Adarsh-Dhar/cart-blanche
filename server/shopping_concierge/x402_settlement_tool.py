@@ -112,7 +112,7 @@ class X402SettlementTool(BaseTool):
                 raw_amount = raw_amount / 1000000.0
 
             # 3. 🚨 YOUR STRICT RULE: True Cost in USD / 10,000 🚨
-            actual_value_to_send = raw_amount / 10000.0
+            actual_value_to_send = raw_amount / 1000000.0
 
             if actual_value_to_send <= 0:
                 actual_value_to_send = 0.0001 
