@@ -13,6 +13,7 @@ dummy_user_key = "0x" + "1" * 64
 user_account = Account.from_key(dummy_user_key)
 
 # 2. Build the EXACT First Day of School Cart ($203)
+# You can paste the raw LLM output here to safely test it!
 cart_mandate = {
     "chain_id": 324705682,
     "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9",
@@ -86,14 +87,26 @@ async def run_test():
     print("🔍 RUNNING PRE-FLIGHT SIMULATION...")
     print("="*50)
 
-    # 🚨 THE SIMULATOR: Accurately calculate what the tool will try to spend
+    # 🚨 THE SIMULATOR: Now mathematically identical to the Tool's logic 🚨
     total_tx_value = 0.0
     for merchant in cart_mandate.get("merchants", []):
-        raw_amount = float(merchant.get("amount", 0))
-        # Matches your strict rule: x / 10000
+        raw_val = merchant.get("amount", 0)
+        
+        # 1. Clean formatting
+        if isinstance(raw_val, str):
+            raw_val = str(raw_val).replace('$', '').replace(',', '')
+        raw_amount = float(raw_val)
+
+        # 2. Sanitize Wei hallucinations
+        if raw_amount > 10000:
+            raw_amount = raw_amount / 1000000.0
+
+        # 3. Apply your strict rule
         actual_value = raw_amount / 10000.0
+
         if actual_value <= 0:
             actual_value = 0.0001
+            
         total_tx_value += actual_value
 
     print(f"🧮 SIMULATION MATH: Agent will attempt to send exactly {total_tx_value:.5f} sFUEL")

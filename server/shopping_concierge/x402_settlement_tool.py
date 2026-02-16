@@ -100,9 +100,18 @@ class X402SettlementTool(BaseTool):
         # Loop through the list of merchants and pay them all
         for vendor in merchants:
             vendor_address = w3.to_checksum_address(random.choice(MERCHANT_WALLETS))
-            
-            # 🚨 STRICT RULE: Cost in USD / 10,000 🚨
-            raw_amount = float(vendor.get("amount", 0))
+
+            # 1. Extract the AI's value and strip any $ or commas it might have added
+            raw_val = vendor.get("amount", 0)
+            if isinstance(raw_val, str):
+                raw_val = str(raw_val).replace('$', '').replace(',', '')
+            raw_amount = float(raw_val)
+
+            # 2. SANITIZE WEI: If the AI output USDC 6-decimal format (e.g. 39690000 instead of 39.69)
+            if raw_amount > 10000:
+                raw_amount = raw_amount / 1000000.0
+
+            # 3. 🚨 YOUR STRICT RULE: True Cost in USD / 10,000 🚨
             actual_value_to_send = raw_amount / 10000.0
 
             if actual_value_to_send <= 0:
