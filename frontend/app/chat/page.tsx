@@ -59,19 +59,30 @@ export default function ChatPage() {
     cleaned = cleaned.replace(/Here is a proposed plan.*?:/ig, '');
     cleaned = cleaned.replace(/I will break down your request.*?:/ig, '');
     
-    // ALLOW JSON blocks if they are receipts (contain tx_hash or receipts key)
-    if (!content.includes('tx_hash') && !content.includes('receipts')) {
-      cleaned = cleaned.replace(/```(?:json)?\n[\s\S]*?\n```/g, '');
+    // FIX: Unconditionally strip ALL markdown code blocks so they never render as raw text
+    cleaned = cleaned.replace(/```(?:json)?[\s\S]*?```/ig, '');
+    
+    // Strip trailing incomplete code blocks during streaming
+    if (cleaned.includes('```')) {
+        cleaned = cleaned.replace(/```(?:json)?[\s\S]*/ig, '');
     }
 
+    // Clean up leaked raw JSON that might not have backticks
+    cleaned = cleaned.replace(/\{\s*"total_budget_amount"[\s\S]*\}/g, '');
+    
     cleaned = cleaned.replace(/\{"authorized":\s*true[\s\S]*?\}/g, '');
     cleaned = cleaned.replace(/Here is my signature for the CartMandate: 0x[a-fA-F0-9]+/g, '');
     cleaned = cleaned.replace(/Signature received.*?(proceed|authorized)\.?/ig, '');
     cleaned = cleaned.replace(/The batch transaction is authorized.*?proceed\./ig, '');
     
-    // NOTE: We no longer strip "Payment Complete" or Skale network strings here
+    // Remove the raw payment text so ONLY the Receipt Component shows
+    cleaned = cleaned.replace(/✅ \*\*Payment Complete!\*\*[\s\S]*?network\./ig, '');
+    cleaned = cleaned.replace(/✅ Payment Complete![\s\S]*?network\./ig, '');
     
     cleaned = cleaned.replace(/([\s\S]{50,})\1+/g, '$1');
+
+    // If the remaining text is just the user's "Approve" bleeding into the assistant's turn, hide it
+    if (cleaned.trim().toLowerCase() === "approve") return "";
 
     return cleaned.trim();
   };
@@ -117,9 +128,8 @@ export default function ChatPage() {
       const decoder = new TextDecoder();
       let currentAgentMessage = '';
 
-      if (!hideUserMessage) {
-        setMessages((prev) => [...prev, { role: 'assistant', text: '' }]);
-      }
+      // Always add the assistant placeholder to catch the receipt response
+      setMessages((prev) => [...prev, { role: 'assistant', text: '' }]);
 
       while (true) {
         const { value, done } = await reader.read();
@@ -156,13 +166,12 @@ export default function ChatPage() {
                   else if (stopIndexText !== -1) displayText = displayText.substring(0, stopIndexText).trim();
                 }
                 
-                if (!hideUserMessage) {
-                  setMessages((prev) => {
-                    const newArray = [...prev];
-                    newArray[newArray.length - 1].text = displayText;
-                    return newArray;
-                  });
-                }
+                // Always update the text stream so the JSON is parsed
+                setMessages((prev) => {
+                  const newArray = [...prev];
+                  newArray[newArray.length - 1].text = displayText;
+                  return newArray;
+                });
               }
             } catch (err) { }
           }
@@ -170,7 +179,7 @@ export default function ChatPage() {
       }
 
       let mandatePayload: any = null;
-      const jsonMatch = currentAgentMessage.match(/```(?:json)?\n([\s\S]*?)\n```/);
+      const jsonMatch = currentAgentMessage.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (jsonMatch && jsonMatch[1]) {
         try { 
           const parsed = JSON.parse(jsonMatch[1].trim());
@@ -266,7 +275,7 @@ export default function ChatPage() {
             let receipt = null;
             if (message.role === 'assistant') {
               // Prefer JSON block
-              const jsonBlock = message.text.match(/```(?:json)?\n([\s\S]*?)\n```/);
+              const jsonBlock = message.text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
               if (jsonBlock && jsonBlock[1]) {
                 try {
                   const parsed = JSON.parse(jsonBlock[1].trim());
@@ -310,8 +319,14 @@ export default function ChatPage() {
                       <ReactMarkdown
                         components={{
                           a: ({...props}) => (
-                            <a className="inline-flex items-center gap-1 ml-auto px-2.5 py-1 bg-primary/10 text-primary hover:bg-primary/20 font-medium text-[10px] rounded-md transition-colors" target="_blank" rel="noopener noreferrer" {...props}>
-                               <ExternalLink className="w-3 h-3" /> {props.children}
+                            <a 
+                              className="inline-flex items-center gap-1.5 px-2 py-0.5 mx-1 bg-secondary/50 text-secondary-foreground hover:bg-secondary text-xs font-medium rounded-md transition-colors whitespace-nowrap" 
+                              target="_blank" 
+                              rel="noopener noreferrer" 
+                              {...props}
+                            >
+                              {props.children}
+                              <ExternalLink className="w-3 h-3 opacity-70" />
                             </a>
                           )
                         }}

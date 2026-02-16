@@ -21,7 +21,7 @@ interface TransactionReceiptProps {
   };
 }
 
-const SKALE_EXPLORER_URL = 'https://elated-tan-skat.explorer.mainnet.skalenodes.com/tx/';
+const SKALE_EXPLORER_URL = 'https://base-sepolia-testnet-explorer.skalenodes.com/tx/';
 
 export function TransactionReceipt({ receipt }: TransactionReceiptProps) {
   // Extract list: handle both batch array and single hashes
@@ -34,19 +34,19 @@ export function TransactionReceipt({ receipt }: TransactionReceiptProps) {
   if (txs.length === 0) return null;
 
   return (
-    <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800/50 rounded-2xl p-5 my-4 shadow-sm">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="bg-green-500 rounded-full p-1">
-          <CheckCircle2 className="w-4 h-4 text-white" />
-        </div>
-        <h3 className="font-bold text-green-800 dark:text-green-300">
-          {txs.length > 1 ? `Batch Settlement Complete` : `Payment Successful`}
-        </h3>
+    <div className="bg-card border border-border/60 rounded-2xl p-5 my-4 shadow-sm">
+      <div className="flex items-center gap-3 mb-2">
+        <span className="inline-flex items-center justify-center bg-green-500/90 dark:bg-green-400/80 text-white rounded-full w-7 h-7 shadow-sm">
+          <CheckCircle2 className="w-4 h-4" />
+        </span>
+        <span className="text-base font-semibold text-foreground tracking-tight">
+          {txs.length > 1 ? 'Batch Settlement Complete' : 'Payment Successful'}
+        </span>
       </div>
 
-      <p className="text-sm text-green-700/80 dark:text-green-400/80 mb-4">
-        {receipt.details || `Successfully processed ${txs.length} payments on the SKALE network.`}
-      </p>
+      <div className="text-xs text-muted-foreground mb-4">
+        {receipt.details || `Successfully processed ${txs.length} payment${txs.length > 1 ? 's' : ''} on the SKALE network.`}
+      </div>
 
       <div className="space-y-2 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
         {txs.map((tx, i) => (
