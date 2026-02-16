@@ -1,3 +1,6 @@
+# Fix for UnboundLocalError: import Content, Part, and Event
+from google.genai.types import Content, Part
+from google.adk.events import Event
 from google.adk.agents import LlmAgent
 from google.adk.agents.invocation_context import InvocationContext
 from google.genai.types import Content, Part, FunctionCall

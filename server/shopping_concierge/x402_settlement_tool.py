@@ -2,7 +2,7 @@ from google.adk.tools.base_tool import BaseTool, ToolContext
 from typing import Any
 import json
 import os
-import random  # 🚨 Added random for the wallet selection
+import random
 
 class X402SettlementTool(BaseTool):
     def __init__(self):
@@ -93,26 +93,27 @@ class X402SettlementTool(BaseTool):
         print(f"[X402_TOOL] Starting MULTI-TX BATCH SETTLEMENT for {len(merchants)} merchants...")
         tx_hashes = []
         receipts = []
+        
+        # Get the starting nonce for the wallet
+        current_nonce = w3.eth.get_transaction_count(agent_address)
 
         # Loop through the list of merchants and pay them all
         for vendor in merchants:
-            # 🚨 ASSIGN RANDOM WALLET 🚨
             vendor_address = w3.to_checksum_address(random.choice(MERCHANT_WALLETS))
             
-            # 🚨 DIVIDE AMOUNT BY 10,000 🚨
+            # 🚨 STRICT RULE: Cost in USD / 10,000 🚨
             raw_amount = float(vendor.get("amount", 0))
             actual_value_to_send = raw_amount / 10000.0
 
-            # Ensure we send at least a tiny micro-transaction if math fails
             if actual_value_to_send <= 0:
                 actual_value_to_send = 0.0001 
 
             commodity_name = vendor.get('name', 'Unknown Item')
             print(f"[X402_TOOL] Paying {commodity_name} at {vendor_address} ({actual_value_to_send} CREDIT)...")
 
-            # Build the transaction for this specific vendor
+            # 🚨 THIS IS THE MISSING LOGIC THAT ACTUALLY SENDS IT 🚨
             tx = {
-                'nonce': w3.eth.get_transaction_count(agent_address),
+                'nonce': current_nonce,
                 'to': vendor_address,
                 'value': w3.to_wei(actual_value_to_send, 'ether'),
                 'gas': 2000000,
@@ -124,23 +125,24 @@ class X402SettlementTool(BaseTool):
             tx_hash_bytes = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
             tx_hash = w3.to_hex(tx_hash_bytes)
 
-            # Wait for receipt
             print(f"[X402_TOOL] ⏳ Waiting for confirmation on {tx_hash}...")
             w3.eth.wait_for_transaction_receipt(tx_hash_bytes, timeout=120)
             tx_hashes.append(tx_hash)
             print(f"[X402_TOOL] ✅ Paid! TX: {tx_hash}")
 
-            # 🚨 RECORD RECEIPT FOR THE FRONTEND 🚨
             receipts.append({
                 "commodity": commodity_name,
                 "wallet": vendor_address,
                 "amount": actual_value_to_send,
                 "tx_hash": tx_hash
             })
+            
+            # Increment nonce so the next loop's transaction doesn't fail
+            current_nonce += 1
 
         return {
             "status": "settled",
-            "receipts": receipts,  # Returning the receipts array so UI shows each vendor!
+            "receipts": receipts,
             "network": "SKALE Base Sepolia Testnet",
             "details": f"Successfully batch-settled {len(merchants)} vendors."
         }

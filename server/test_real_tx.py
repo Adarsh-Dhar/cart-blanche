@@ -12,28 +12,30 @@ from shopping_concierge.x402_settlement_tool import X402SettlementTool
 dummy_user_key = "0x" + "1" * 64
 user_account = Account.from_key(dummy_user_key)
 
-# 2. Build a realistic multi-item Batch CartMandate
+# 2. Build the EXACT First Day of School Cart ($203)
 cart_mandate = {
     "chain_id": 324705682,
     "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9",
-    "amount": 85, # Total cost
+    "amount": 203, 
     "currency": "USDC",
     "merchants": [
-        {
-            "name": "Nike Backpack",
-            "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9", # Tool will ignore this and pick randomly
-            "amount": 45
-        },
-        {
-            "name": "OfficeDepot Stationery",
-            "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9",
-            "amount": 25
-        },
-        {
-            "name": "Puma Socks",
-            "merchant_address": "0xFe5e03799Fe833D93e950d22406F9aD901Ff3Bb9",
-            "amount": 15
-        }
+        {"name": "Durable Backpack", "merchant_address": "0x00", "amount": 35},
+        {"name": "Notebooks (5-pack)", "merchant_address": "0x00", "amount": 10},
+        {"name": "Pens (8-pack)", "merchant_address": "0x00", "amount": 2},
+        {"name": "Pencils (12-pack)", "merchant_address": "0x00", "amount": 4},
+        {"name": "Highlighters (5-pack)", "merchant_address": "0x00", "amount": 6},
+        {"name": "Erasers (5-pack)", "merchant_address": "0x00", "amount": 4},
+        {"name": "Folders (3-pack)", "merchant_address": "0x00", "amount": 6},
+        {"name": "Basic Calculator", "merchant_address": "0x00", "amount": 5},
+        {"name": "Pencil Case", "merchant_address": "0x00", "amount": 5},
+        {"name": "Ruler (12-inch)", "merchant_address": "0x00", "amount": 2.50},
+        {"name": "Comfortable Shirt", "merchant_address": "0x00", "amount": 15},
+        {"name": "Comfortable Pants/Skirt", "merchant_address": "0x00", "amount": 30},
+        {"name": "Sneakers", "merchant_address": "0x00", "amount": 45},
+        {"name": "Reusable Water Bottle", "merchant_address": "0x00", "amount": 10},
+        {"name": "Lunchbox/Bag", "merchant_address": "0x00", "amount": 15},
+        {"name": "Hand Sanitizer", "merchant_address": "0x00", "amount": 1.50},
+        {"name": "Tissues (Travel Pack)", "merchant_address": "0x00", "amount": 2}
     ]
 }
 
@@ -67,9 +69,6 @@ signable_bytes = encode_typed_data(domain_data=domain, message_types={"CartManda
 signed_message = Account.sign_message(signable_bytes, private_key=user_account.key)
 signature = signed_message.signature.hex()
 
-print(f"👤 Mock User Address: {user_account.address}")
-print(f"✍️ Generated Signature: {signature[:15]}...\n")
-
 # 4. Package it exactly like the LLM does
 payment_mandate = {
     "signature": signature,
@@ -78,9 +77,43 @@ payment_mandate = {
 }
 
 async def run_test():
-    if not os.environ.get("SKALE_AGENT_PRIVATE_KEY"):
+    private_key = os.environ.get("SKALE_AGENT_PRIVATE_KEY")
+    if not private_key:
         print("❌ ERROR: SKALE_AGENT_PRIVATE_KEY is missing from your environment!")
         return
+
+    print("\n" + "="*50)
+    print("🔍 RUNNING PRE-FLIGHT SIMULATION...")
+    print("="*50)
+
+    # 🚨 THE SIMULATOR: Accurately calculate what the tool will try to spend
+    total_tx_value = 0.0
+    for merchant in cart_mandate.get("merchants", []):
+        raw_amount = float(merchant.get("amount", 0))
+        # Matches your strict rule: x / 10000
+        actual_value = raw_amount / 10000.0
+        if actual_value <= 0:
+            actual_value = 0.0001
+        total_tx_value += actual_value
+
+    print(f"🧮 SIMULATION MATH: Agent will attempt to send exactly {total_tx_value:.5f} sFUEL")
+
+    # Connect to blockchain to check real balance
+    w3 = Web3(Web3.HTTPProvider("https://base-sepolia-testnet.skalenodes.com/v1/jubilant-horrible-ancha"))
+    agent_account = w3.eth.account.from_key(private_key)
+    balance_wei = w3.eth.get_balance(agent_account.address)
+    balance_sfuel = float(w3.from_wei(balance_wei, 'ether'))
+
+    print(f"💰 ACTUAL WALLET BALANCE: {balance_sfuel:.5f} sFUEL")
+
+    # 🚨 SIMULATE THE WEB3 ERROR 🚨
+    if total_tx_value > balance_sfuel:
+        print("\n❌ SIMULATION FAILED: Account balance is too low!")
+        print(f"⚠️ You need {total_tx_value:.5f} but only have {balance_sfuel:.5f}.")
+        print("🛑 This would trigger a 'Web3RPCError' in your chat UI. Stopping execution to protect the app.")
+        return  # Block the tool execution entirely, just like the real error
+    else:
+        print("✅ SIMULATION PASSED: Sufficient funds detected.\n")
 
     tool = X402SettlementTool()
     
@@ -94,7 +127,7 @@ async def run_test():
         print(json.dumps(result, indent=2))
         
     except Exception as e:
-        print("\n❌ SETTLEMENT FAILED!")
+        print("\n❌ SETTLEMENT FAILED DURING EXECUTION!")
         print(e)
 
 if __name__ == "__main__":
